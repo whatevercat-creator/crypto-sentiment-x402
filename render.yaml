@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: crypto-sentiment-x402
+    env: docker
+    plan: starter
+    envVars:
+      - key: PAY_TO_ADDRESS
+        sync: false
+      - key: X402_NETWORK
+        value: testnet
+      - key: X402_PRICE_USD
+        value: "$0.01"
+    healthCheckPath: /health
