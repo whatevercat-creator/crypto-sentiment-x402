@@ -1,0 +1,14 @@
+Copyright (c) 2026 whatevercat-creator
+
+All Rights Reserved.
+
+This source code is published on GitHub for transparency only — so that
+buyers of the pay-per-call API (including AI agents evaluating it via the
+x402 Bazaar) can inspect what they are paying for.
+
+No permission is granted to copy, modify, merge, publish, distribute,
+sublicense, host, or sell copies of this software, in whole or in part,
+without prior written permission from the copyright holder.
+
+Use of the deployed HTTP API itself is governed by payment via the x402
+protocol at the price advertised by the service, not by this license.
