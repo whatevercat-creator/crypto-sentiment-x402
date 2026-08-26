@@ -1,0 +1,4 @@
+# Extra deps for mcp_server.py, on top of requirements.txt (cdp-sdk + x402
+# are already there for the API itself). Install both:
+#   pip install -r requirements.txt -r requirements-mcp.txt
+mcp>=1.2.0

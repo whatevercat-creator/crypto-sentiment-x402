@@ -92,6 +92,13 @@ search engine for agents looking for x402 services.
   [x402bazaar.org](https://www.x402bazaar.org/), a community-run directory
   of x402 services, separate from Coinbase's own Bazaar.
 
+## MCP server (Claude Desktop / Claude Code)
+
+Prefer agents calling this over MCP instead of raw HTTP? `mcp_server.py`
+wraps the same API as an MCP tool (`crypto_sentiment`) -- the server pays
+for each call from its own CDP-managed wallet, so callers never touch
+crypto directly. See [MCP.md](MCP.md) for setup.
+
 ## API reference
 
 | Endpoint | Price | Description |
