@@ -78,18 +78,7 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description=(
-            "Real-time crypto market sentiment analysis for a given ticker "
-            "symbol (e.g. BTC, ETH, SOL, DOGE). Aggregates and scores live "
-            "posts and headlines from Reddit crypto communities, major "
-            "crypto news outlets (CoinDesk, Cointelegraph, Decrypt), and "
-            "the Fear & Greed Index. Returns a bullish/bearish/neutral "
-            "label, a numeric sentiment score, positive/negative/neutral "
-            "post percentages, and a per-source breakdown as JSON. Useful "
-            "for trading bots, market research agents, portfolio "
-            "monitoring, and social sentiment tracking. Path parameter: "
-            "symbol (uppercase ticker, e.g. /sentiment/BTC)."
-        ),
+        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates Reddit, crypto news (CoinDesk, Cointelegraph, Decrypt), and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
     ),
 }
 
