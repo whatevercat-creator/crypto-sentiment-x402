@@ -38,12 +38,9 @@ from x402.extensions.bazaar import (
     bazaar_resource_server_extension,
 )
 
-from app.sources.reddit import fetch_reddit_posts
-from app.sources.news import fetch_news_headlines
-from app.sources.feargreed import fetch_fear_greed
-from app.sentiment import score_texts
-from app.coins import resolve_name
 from app.billing import router as billing_router, init_db, verify_and_charge_api_key
+from app.alerts import router as alerts_router, init_alerts_db, poll_loop
+from app.sentiment_service import compute_sentiment_payload
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
 NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")
@@ -125,11 +122,23 @@ routes = {
 app = FastAPI(title="Crypto Sentiment API (x402)")
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
 app.include_router(billing_router)
+app.include_router(alerts_router)
+
+_alert_task = None
 
 
 @app.on_event("startup")
 async def _startup():
+    global _alert_task
     init_db()
+    init_alerts_db()
+    _alert_task = asyncio.create_task(poll_loop())
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    if _alert_task is not None:
+        _alert_task.cancel()
 
 
 @app.get("/")
@@ -142,6 +151,7 @@ async def root():
         "paid_endpoint": "/sentiment/{symbol}",
         "example": "/sentiment/BTC",
         "subscriptions": "/billing/pricing",
+        "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
         "docs": "/docs",
     }
 
@@ -151,49 +161,13 @@ async def health():
     return {"status": "ok"}
 
 
-async def _compute_sentiment_payload(symbol: str) -> dict:
-    symbol = symbol.upper().strip()
-    if not symbol.isalnum() or len(symbol) > 10:
-        raise HTTPException(status_code=400, detail="Invalid symbol")
-
-    name = resolve_name(symbol)
-
-    reddit_task = fetch_reddit_posts(symbol)
-    news_task = fetch_news_headlines(symbol, name)
-    fng_task = fetch_fear_greed()
-
-    reddit_texts, news_texts, fear_greed = await asyncio.gather(
-        reddit_task, news_task, fng_task
-    )
-
-    all_texts = reddit_texts + news_texts
-    overall = score_texts(all_texts)
-    reddit_score = score_texts(reddit_texts)
-    news_score = score_texts(news_texts)
-
-    return {
-        "symbol": symbol,
-        "name": name,
-        "overall_sentiment": overall,
-        "breakdown": {
-            "reddit": reddit_score,
-            "news": news_score,
-            "fear_greed_index": fear_greed,
-        },
-        "sources": [
-            "reddit.com (r/CryptoCurrency, r/Bitcoin, r/CryptoMarkets)",
-            "coindesk.com RSS",
-            "cointelegraph.com RSS",
-            "decrypt.co RSS",
-            "alternative.me Fear & Greed Index",
-        ],
-    }
-
-
 @app.get("/sentiment/{symbol}")
 async def get_sentiment(symbol: str):
     """x402 pay-per-call lane -- gated by PaymentMiddlewareASGI above."""
-    payload = await _compute_sentiment_payload(symbol)
+    try:
+        payload = await compute_sentiment_payload(symbol)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return JSONResponse(payload)
 
 
@@ -201,7 +175,10 @@ async def get_sentiment(symbol: str):
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
     """Stripe-subscription lane -- gated by an API key issued via /billing/*."""
     usage = verify_and_charge_api_key(x_api_key)
-    payload = await _compute_sentiment_payload(symbol)
+    try:
+        payload = await compute_sentiment_payload(symbol)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     payload["_billing"] = {
         "tier": usage["tier"],
         "calls_used_this_period": usage["calls_used"],

@@ -22,6 +22,12 @@ services:
         sync: false
       - key: BILLING_DB_PATH
         value: /data/billing.db
+      - key: ALERT_POLL_INTERVAL_SECONDS
+        value: "900"
+      - key: ALERT_THRESHOLD_DEFAULT
+        value: "0.3"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
     healthCheckPath: /health
     disk:
       name: billing-data

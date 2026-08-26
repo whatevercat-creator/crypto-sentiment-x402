@@ -51,18 +51,21 @@ TIERS = {
         "limit": 100,
         "price_usd": 0,
         "price_id_env": None,
+        "alert_limit": 0,
     },
     "starter": {
         "label": "Starter",
         "limit": 3000,
         "price_usd": 15,
         "price_id_env": "STRIPE_PRICE_ID_STARTER",
+        "alert_limit": 3,
     },
     "pro": {
         "label": "Pro",
         "limit": 15000,
         "price_usd": 59,
         "price_id_env": "STRIPE_PRICE_ID_PRO",
+        "alert_limit": 15,
     },
 }
 
@@ -318,3 +321,27 @@ def verify_and_charge_api_key(api_key: str) -> dict:
         )
 
         return {"tier": row["tier"], "calls_used": calls_used + 1, "limit": limit}
+
+
+def get_key_info(api_key: str) -> dict:
+    """
+    Look up an API key WITHOUT charging a sentiment-call against its quota.
+    Used by /alerts/* endpoints, which manage watches rather than fetch data.
+    Raises HTTPException if the key is missing/inactive.
+    """
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT * FROM api_keys WHERE api_key = ?", (api_key,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(
+                401,
+                "Invalid API key. Get one at POST /billing/signup-free "
+                "or POST /billing/checkout/{tier}.",
+            )
+        if row["status"] != "active":
+            raise HTTPException(403, "This subscription is not active.")
+        if row["tier"] not in TIERS:
+            raise HTTPException(500, "Unknown tier on this key -- contact support.")
+
+        return {"tier": row["tier"], "email": row["email"]}

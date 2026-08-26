@@ -24,3 +24,11 @@ COIN_NAMES = {
 
 def resolve_name(symbol: str) -> str:
     return COIN_NAMES.get(symbol.upper(), symbol)
+
+
+def validate_symbol(symbol: str) -> str:
+    """Normalize and validate a ticker symbol (e.g. 'btc ' -> 'BTC'). Raises ValueError if invalid."""
+    symbol = symbol.upper().strip()
+    if not symbol.isalnum() or len(symbol) > 10:
+        raise ValueError(f"Invalid symbol: {symbol!r}")
+    return symbol

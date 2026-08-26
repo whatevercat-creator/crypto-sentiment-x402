@@ -106,6 +106,12 @@ takes an `X-API-Key` header instead of an x402 payment, backed by Free /
 Starter ($15/mo) / Pro ($59/mo) tiers. See [BILLING.md](BILLING.md) for
 setup, or `GET /billing/pricing` on a running instance for current pricing.
 
+## Sentiment-shift alerts
+
+Watch a symbol and get pinged (webhook / Discord / Telegram) when its
+sentiment moves, instead of polling `/sentiment` yourself. Bundled into the
+Starter/Pro subscription tiers -- see [ALERTS.md](ALERTS.md).
+
 ## API reference
 
 | Endpoint | Price | Description |
