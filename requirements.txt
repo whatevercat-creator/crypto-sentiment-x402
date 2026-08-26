@@ -6,3 +6,4 @@ x402>=0.1.0
 cdp-sdk
 jsonschema
 python-dotenv==1.0.1
+stripe>=10.0.0

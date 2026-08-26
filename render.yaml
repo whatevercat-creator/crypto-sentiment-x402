@@ -10,4 +10,20 @@ services:
         value: testnet
       - key: X402_PRICE_USD
         value: "$0.01"
+      - key: APP_BASE_URL
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_ID_STARTER
+        sync: false
+      - key: STRIPE_PRICE_ID_PRO
+        sync: false
+      - key: BILLING_DB_PATH
+        value: /data/billing.db
     healthCheckPath: /health
+    disk:
+      name: billing-data
+      mountPath: /data
+      sizeGB: 1

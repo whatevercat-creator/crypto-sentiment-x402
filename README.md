@@ -99,6 +99,13 @@ wraps the same API as an MCP tool (`crypto_sentiment`) -- the server pays
 for each call from its own CDP-managed wallet, so callers never touch
 crypto directly. See [MCP.md](MCP.md) for setup.
 
+## Subscription tiers (Stripe, no crypto required)
+
+Prefer a monthly bill over pay-per-call USDC? `GET /v1/sentiment/{symbol}`
+takes an `X-API-Key` header instead of an x402 payment, backed by Free /
+Starter ($15/mo) / Pro ($59/mo) tiers. See [BILLING.md](BILLING.md) for
+setup, or `GET /billing/pricing` on a running instance for current pricing.
+
 ## API reference
 
 | Endpoint | Price | Description |

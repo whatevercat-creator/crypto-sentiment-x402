@@ -1,9 +1,14 @@
 """
-Crypto Sentiment API — x402-gated
+Crypto Sentiment API — x402-gated, with an optional Stripe-subscription lane
 
 Free-source aggregate crypto sentiment (Reddit + crypto news RSS + Fear &
-Greed Index), scored with VADER + a crypto slang lexicon, sold per-call
-to AI agents via the x402 payment protocol (Base + USDC).
+Greed Index), scored with VADER + a crypto slang lexicon.
+
+Two ways to buy it:
+  - GET /sentiment/{symbol}     -- x402 pay-per-call in USDC on Base (agents)
+  - GET /v1/sentiment/{symbol}  -- X-API-Key header, Stripe subscription
+                                    quota (humans/devs who don't want crypto)
+                                    -- see app/billing.py and BILLING.md
 
 Env vars (see .env.example):
   PAY_TO_ADDRESS       - your Base wallet address that receives USDC (required)
@@ -11,12 +16,13 @@ Env vars (see .env.example):
   X402_PRICE_USD       - price per call, e.g. "$0.01" (default)
   CDP_API_KEY_ID        - required (CDP facilitator handles both testnet & mainnet)
   CDP_API_KEY_SECRET    - required
+  (Stripe subscription env vars are documented in app/billing.py)
 """
 
 import os
 import asyncio
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse
 
 from cdp.x402 import create_facilitator_config
@@ -37,6 +43,7 @@ from app.sources.news import fetch_news_headlines
 from app.sources.feargreed import fetch_fear_greed
 from app.sentiment import score_texts
 from app.coins import resolve_name
+from app.billing import router as billing_router, init_db, verify_and_charge_api_key
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
 NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")
@@ -110,10 +117,19 @@ routes = {
             )
         },
     ),
+    # NOTE: /v1/sentiment/* is intentionally NOT listed here -- it's the
+    # Stripe-subscription lane, gated by verify_and_charge_api_key() below
+    # instead of the x402 payment middleware.
 }
 
 app = FastAPI(title="Crypto Sentiment API (x402)")
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
+app.include_router(billing_router)
+
+
+@app.on_event("startup")
+async def _startup():
+    init_db()
 
 
 @app.get("/")
@@ -125,6 +141,7 @@ async def root():
         "price_per_call": PRICE_USD,
         "paid_endpoint": "/sentiment/{symbol}",
         "example": "/sentiment/BTC",
+        "subscriptions": "/billing/pricing",
         "docs": "/docs",
     }
 
@@ -134,8 +151,7 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/sentiment/{symbol}")
-async def get_sentiment(symbol: str):
+async def _compute_sentiment_payload(symbol: str) -> dict:
     symbol = symbol.upper().strip()
     if not symbol.isalnum() or len(symbol) > 10:
         raise HTTPException(status_code=400, detail="Invalid symbol")
@@ -155,22 +171,40 @@ async def get_sentiment(symbol: str):
     reddit_score = score_texts(reddit_texts)
     news_score = score_texts(news_texts)
 
-    return JSONResponse(
-        {
-            "symbol": symbol,
-            "name": name,
-            "overall_sentiment": overall,
-            "breakdown": {
-                "reddit": reddit_score,
-                "news": news_score,
-                "fear_greed_index": fear_greed,
-            },
-            "sources": [
-                "reddit.com (r/CryptoCurrency, r/Bitcoin, r/CryptoMarkets)",
-                "coindesk.com RSS",
-                "cointelegraph.com RSS",
-                "decrypt.co RSS",
-                "alternative.me Fear & Greed Index",
-            ],
-        }
-    )
+    return {
+        "symbol": symbol,
+        "name": name,
+        "overall_sentiment": overall,
+        "breakdown": {
+            "reddit": reddit_score,
+            "news": news_score,
+            "fear_greed_index": fear_greed,
+        },
+        "sources": [
+            "reddit.com (r/CryptoCurrency, r/Bitcoin, r/CryptoMarkets)",
+            "coindesk.com RSS",
+            "cointelegraph.com RSS",
+            "decrypt.co RSS",
+            "alternative.me Fear & Greed Index",
+        ],
+    }
+
+
+@app.get("/sentiment/{symbol}")
+async def get_sentiment(symbol: str):
+    """x402 pay-per-call lane -- gated by PaymentMiddlewareASGI above."""
+    payload = await _compute_sentiment_payload(symbol)
+    return JSONResponse(payload)
+
+
+@app.get("/v1/sentiment/{symbol}")
+async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
+    """Stripe-subscription lane -- gated by an API key issued via /billing/*."""
+    usage = verify_and_charge_api_key(x_api_key)
+    payload = await _compute_sentiment_payload(symbol)
+    payload["_billing"] = {
+        "tier": usage["tier"],
+        "calls_used_this_period": usage["calls_used"],
+        "calls_limit_this_period": usage["limit"],
+    }
+    return JSONResponse(payload)
