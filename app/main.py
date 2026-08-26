@@ -26,6 +26,11 @@ from x402.http.middleware.fastapi import PaymentMiddlewareASGI
 from x402.http.types import RouteConfig
 from x402.server import x402ResourceServer
 from x402.mechanisms.evm.exact import ExactEvmServerScheme
+from x402.extensions.bazaar import (
+    declare_discovery_extension,
+    OutputConfig,
+    bazaar_resource_server_extension,
+)
 
 from app.sources.reddit import fetch_reddit_posts
 from app.sources.news import fetch_news_headlines
@@ -33,18 +38,8 @@ from app.sources.feargreed import fetch_fear_greed
 from app.sentiment import score_texts
 from app.coins import resolve_name
 
-# ---------------------------------------------------------------------
-# x402 configuration
-#
-# We always use the CDP (Coinbase Developer Platform) facilitator, for
-# both testnet and mainnet — Coinbase recommends this over the old
-# x402.org testnet-only facilitator, which now requires auth it doesn't
-# provide by default. CDP is free to sign up for and has a generous
-# free tier (1,000 onchain transactions/month).
-# ---------------------------------------------------------------------
-
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
-NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")  # "testnet" | "mainnet"
+NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")
 PRICE_USD = os.environ.get("X402_PRICE_USD", "$0.01")
 
 if not PAY_TO_ADDRESS:
@@ -61,12 +56,10 @@ if not os.environ.get("CDP_API_KEY_ID") or not os.environ.get("CDP_API_KEY_SECRE
 
 CAIP2_NETWORK = "eip155:8453" if NETWORK_MODE == "mainnet" else "eip155:84532"
 
-# create_facilitator_config() reads CDP_API_KEY_ID / CDP_API_KEY_SECRET
-# from the environment and builds an authenticated config for the CDP
-# Facilitator automatically.
 facilitator = HTTPFacilitatorClient(create_facilitator_config())
 server = x402ResourceServer(facilitator)
 server.register(CAIP2_NETWORK, ExactEvmServerScheme())
+server.register_extension(bazaar_resource_server_extension)
 
 routes = {
     "GET /sentiment/*": RouteConfig(
@@ -79,16 +72,45 @@ routes = {
             ),
         ],
         description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates Reddit, crypto news (CoinDesk, Cointelegraph, Decrypt), and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
+        mime_type="application/json",
+        extensions={
+            **declare_discovery_extension(
+                input={"symbol": "BTC"},
+                input_schema={
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Uppercase ticker symbol, e.g. BTC, ETH, SOL",
+                        }
+                    },
+                    "required": ["symbol"],
+                },
+                output=OutputConfig(
+                    example={
+                        "symbol": "BTC",
+                        "name": "Bitcoin",
+                        "overall_sentiment": {
+                            "label": "bullish",
+                            "average_compound": 0.21,
+                        },
+                    },
+                    schema={
+                        "properties": {
+                            "symbol": {"type": "string"},
+                            "name": {"type": "string"},
+                            "overall_sentiment": {"type": "object"},
+                        },
+                        "required": ["symbol", "overall_sentiment"],
+                    },
+                ),
+            )
+        },
     ),
 }
 
 app = FastAPI(title="Crypto Sentiment API (x402)")
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
 
-
-# ---------------------------------------------------------------------
-# Free, unpaywalled endpoints (health check + human-readable docs)
-# ---------------------------------------------------------------------
 
 @app.get("/")
 async def root():
@@ -107,11 +129,6 @@ async def root():
 async def health():
     return {"status": "ok"}
 
-
-# ---------------------------------------------------------------------
-# Paid endpoint — payment is enforced by the middleware above; this
-# handler only runs after a valid payment has been verified.
-# ---------------------------------------------------------------------
 
 @app.get("/sentiment/{symbol}")
 async def get_sentiment(symbol: str):

@@ -2,6 +2,7 @@ fastapi==0.115.0
 uvicorn[standard]==0.32.0
 httpx==0.27.2
 vaderSentiment==3.3.2
-x402[evm]>=0.1.0
-cdp-sdk>=1.0.0
+x402>=0.1.0
+cdp-sdk
+jsonschema
 python-dotenv==1.0.1
