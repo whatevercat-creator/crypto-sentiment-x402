@@ -75,16 +75,19 @@ routes = {
         mime_type="application/json",
         extensions={
             **declare_discovery_extension(
-                method="GET",
-                input={"symbol": "BTC"},
+                input={"method": "GET", "symbol": "BTC"},
                 input_schema={
                     "properties": {
+                        "method": {
+                            "type": "string",
+                            "description": "HTTP method, always GET",
+                        },
                         "symbol": {
                             "type": "string",
                             "description": "Uppercase ticker symbol, e.g. BTC, ETH, SOL",
-                        }
+                        },
                     },
-                    "required": ["symbol"],
+                    "required": ["method", "symbol"],
                 },
                 output=OutputConfig(
                     example={
