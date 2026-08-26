@@ -75,6 +75,7 @@ routes = {
         mime_type="application/json",
         extensions={
             **declare_discovery_extension(
+                method="GET",
                 input={"symbol": "BTC"},
                 input_schema={
                     "properties": {
