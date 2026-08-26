@@ -69,7 +69,7 @@ server = x402ResourceServer(facilitator)
 server.register(CAIP2_NETWORK, ExactEvmServerScheme())
 
 routes = {
-    "GET /sentiment/{symbol}": RouteConfig(
+    "GET /sentiment/*": RouteConfig(
         accepts=[
             PaymentOption(
                 scheme="exact",
