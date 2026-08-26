@@ -6,20 +6,22 @@ Greed Index), scored with VADER + a crypto slang lexicon, sold per-call
 to AI agents via the x402 payment protocol (Base + USDC).
 
 Env vars (see .env.example):
-  PAY_TO_ADDRESS   - your Base wallet address that receives USDC (required)
-  X402_NETWORK     - "testnet" (default) or "mainnet"
-  X402_PRICE_USD   - price per call, e.g. "$0.01" (default)
-  CDP_API_KEY_ID / CDP_API_KEY_SECRET  - only required for X402_NETWORK=mainnet
+  PAY_TO_ADDRESS       - your Base wallet address that receives USDC (required)
+  X402_NETWORK         - "testnet" (default) or "mainnet"
+  X402_PRICE_USD       - price per call, e.g. "$0.01" (default)
+  CDP_API_KEY_ID        - required (CDP facilitator handles both testnet & mainnet)
+  CDP_API_KEY_SECRET    - required
 """
 
 import os
 import asyncio
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
-from x402.http import HTTPFacilitatorClient, FacilitatorConfig, PaymentOption
+from cdp.x402 import create_facilitator_config
+
+from x402.http import HTTPFacilitatorClient, PaymentOption
 from x402.http.middleware.fastapi import PaymentMiddlewareASGI
 from x402.http.types import RouteConfig
 from x402.server import x402ResourceServer
@@ -33,6 +35,12 @@ from app.coins import resolve_name
 
 # ---------------------------------------------------------------------
 # x402 configuration
+#
+# We always use the CDP (Coinbase Developer Platform) facilitator, for
+# both testnet and mainnet — Coinbase recommends this over the old
+# x402.org testnet-only facilitator, which now requires auth it doesn't
+# provide by default. CDP is free to sign up for and has a generous
+# free tier (1,000 onchain transactions/month).
 # ---------------------------------------------------------------------
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
@@ -45,14 +53,18 @@ if not PAY_TO_ADDRESS:
         "address that should receive USDC payments."
     )
 
-if NETWORK_MODE == "mainnet":
-    CAIP2_NETWORK = "eip155:8453"  # Base mainnet
-    FACILITATOR_URL = "https://api.cdp.coinbase.com/platform/v2/x402"
-else:
-    CAIP2_NETWORK = "eip155:84532"  # Base Sepolia testnet
-    FACILITATOR_URL = "https://x402.org/facilitator"
+if not os.environ.get("CDP_API_KEY_ID") or not os.environ.get("CDP_API_KEY_SECRET"):
+    raise RuntimeError(
+        "CDP_API_KEY_ID and CDP_API_KEY_SECRET env vars are required. "
+        "Get a free API key at https://portal.cdp.coinbase.com"
+    )
 
-facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=FACILITATOR_URL))
+CAIP2_NETWORK = "eip155:8453" if NETWORK_MODE == "mainnet" else "eip155:84532"
+
+# create_facilitator_config() reads CDP_API_KEY_ID / CDP_API_KEY_SECRET
+# from the environment and builds an authenticated config for the CDP
+# Facilitator automatically.
+facilitator = HTTPFacilitatorClient(create_facilitator_config())
 server = x402ResourceServer(facilitator)
 server.register(CAIP2_NETWORK, ExactEvmServerScheme())
 
