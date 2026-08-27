@@ -7,7 +7,7 @@ services:
       - key: PAY_TO_ADDRESS
         sync: false
       - key: X402_NETWORK
-        value: testnet
+        sync: false
       - key: X402_PRICE_USD
         value: "$0.01"
       - key: APP_BASE_URL
