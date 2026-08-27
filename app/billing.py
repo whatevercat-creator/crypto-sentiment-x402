@@ -187,7 +187,9 @@ def checkout_success(session_id: str):
     if not stripe.api_key:
         raise HTTPException(503, "Stripe isn't configured on this deployment.")
 
-    session = stripe.checkout.Session.retrieve(session_id)
+    # Newer stripe-python (v9+) resource objects aren't dict-like anymore --
+    # .to_dict() converts recursively so the .get() chains below still work.
+    session = stripe.checkout.Session.retrieve(session_id).to_dict()
     customer_id = session.get("customer")
 
     # The webhook that provisions the key can land a moment after the
@@ -233,7 +235,9 @@ async def stripe_webhook(request: Request):
         raise HTTPException(400, f"Invalid webhook payload/signature: {e}")
 
     event_type = event["type"]
-    data = event["data"]["object"]
+    # Same story as checkout_success above -- convert to a plain dict so the
+    # .get() calls below work regardless of stripe-python's object shape.
+    data = event["data"]["object"].to_dict()
 
     if event_type == "checkout.session.completed":
         tier = (data.get("metadata") or {}).get("tier", "starter")
