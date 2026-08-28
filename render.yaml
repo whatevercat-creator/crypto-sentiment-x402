@@ -34,6 +34,8 @@ services:
         sync: false
       - key: SNAPSHOT_INTERVAL_SECONDS
         value: "3600"
+      - key: RAPIDAPI_PROXY_SECRET
+        sync: false
     healthCheckPath: /health
     disk:
       name: billing-data
