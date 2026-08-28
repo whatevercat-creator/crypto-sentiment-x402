@@ -132,6 +132,13 @@ header), so this endpoint isn't meant to be called directly. Plans there
 mirror the Stripe tiers: Free (100 req/mo), $15/mo (3,000 req), $59/mo
 (15,000 req).
 
+## Zapier & TradingView integrations
+
+Route sentiment-shift alerts into Zapier (via the existing webhook
+channel -- no new endpoint needed) or enrich TradingView price alerts
+with live sentiment before relaying them to your webhook/Discord/
+Telegram. See [INTEGRATIONS.md](INTEGRATIONS.md).
+
 ## API reference
 
 | Endpoint | Price | Description |

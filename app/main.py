@@ -42,6 +42,7 @@ from app.billing import router as billing_router, init_db, verify_and_charge_api
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app.rapidapi import router as rapidapi_router
+from app.integrations import router as integrations_router
 from app.sentiment_service import compute_sentiment_payload
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
@@ -127,6 +128,7 @@ app.include_router(billing_router)
 app.include_router(alerts_router)
 app.include_router(dataset_router)
 app.include_router(rapidapi_router)
+app.include_router(integrations_router)
 
 _alert_task = None
 _snapshot_task = None
@@ -162,6 +164,7 @@ async def root():
         "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
         "dataset": "/dataset/info",
         "rapidapi": "/rapidapi/sentiment/{symbol} (RapidAPI-proxied traffic only)",
+        "integrations": "/integrations/tradingview/{api_key} (relays TradingView alerts through your existing /alerts/watch channels)",
         "docs": "/docs",
     }
 
