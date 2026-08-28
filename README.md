@@ -112,6 +112,15 @@ Watch a symbol and get pinged (webhook / Discord / Telegram) when its
 sentiment moves, instead of polling `/sentiment` yourself. Bundled into the
 Starter/Pro subscription tiers -- see [ALERTS.md](ALERTS.md).
 
+## Historical dataset export
+
+Sells access to the *history* of sentiment readings, not just the current
+one -- a background job takes one snapshot per symbol per day, and
+subscribers on the "Data Access" tier can export everything collected so
+far as CSV or JSON via `GET /dataset/export`. See [DATASET.md](DATASET.md)
+(there's no backfilled history -- it only has data from whenever you turn
+the snapshot loop on).
+
 ## API reference
 
 | Endpoint | Price | Description |

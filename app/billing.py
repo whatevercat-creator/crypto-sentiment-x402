@@ -52,6 +52,7 @@ TIERS = {
         "price_usd": 0,
         "price_id_env": None,
         "alert_limit": 0,
+        "dataset_access": False,
     },
     "starter": {
         "label": "Starter",
@@ -59,6 +60,7 @@ TIERS = {
         "price_usd": 15,
         "price_id_env": "STRIPE_PRICE_ID_STARTER",
         "alert_limit": 3,
+        "dataset_access": False,
     },
     "pro": {
         "label": "Pro",
@@ -66,6 +68,15 @@ TIERS = {
         "price_usd": 59,
         "price_id_env": "STRIPE_PRICE_ID_PRO",
         "alert_limit": 15,
+        "dataset_access": False,
+    },
+    "data": {
+        "label": "Data Access",
+        "limit": 3000,
+        "price_usd": 29,
+        "price_id_env": "STRIPE_PRICE_ID_DATA",
+        "alert_limit": 0,
+        "dataset_access": True,
     },
 }
 
@@ -161,8 +172,8 @@ def signup_free(body: FreeSignup):
 
 @router.post("/checkout/{tier}")
 def create_checkout(tier: str):
-    if tier not in ("starter", "pro"):
-        raise HTTPException(400, "tier must be 'starter' or 'pro' (use /billing/signup-free for the free tier)")
+    if tier not in ("starter", "pro", "data"):
+        raise HTTPException(400, "tier must be 'starter', 'pro', or 'data' (use /billing/signup-free for the free tier)")
 
     price_id = os.environ.get(TIERS[tier]["price_id_env"], "")
     if not stripe.api_key or not price_id:

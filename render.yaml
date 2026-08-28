@@ -28,6 +28,12 @@ services:
         value: "0.3"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
+      - key: STRIPE_PRICE_ID_DATA
+        sync: false
+      - key: SNAPSHOT_SYMBOLS
+        sync: false
+      - key: SNAPSHOT_INTERVAL_SECONDS
+        value: "3600"
     healthCheckPath: /health
     disk:
       name: billing-data

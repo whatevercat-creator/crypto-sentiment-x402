@@ -40,6 +40,7 @@ from x402.extensions.bazaar import (
 
 from app.billing import router as billing_router, init_db, verify_and_charge_api_key
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
+from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app.sentiment_service import compute_sentiment_payload
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
@@ -123,22 +124,27 @@ app = FastAPI(title="Crypto Sentiment API (x402)")
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
 app.include_router(billing_router)
 app.include_router(alerts_router)
+app.include_router(dataset_router)
 
 _alert_task = None
+_snapshot_task = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _alert_task
+    global _alert_task, _snapshot_task
     init_db()
     init_alerts_db()
+    init_dataset_db()
     _alert_task = asyncio.create_task(poll_loop())
+    _snapshot_task = asyncio.create_task(snapshot_loop())
 
 
 @app.on_event("shutdown")
 async def _shutdown():
-    if _alert_task is not None:
-        _alert_task.cancel()
+    for task in (_alert_task, _snapshot_task):
+        if task is not None:
+            task.cancel()
 
 
 @app.get("/")
@@ -152,6 +158,7 @@ async def root():
         "example": "/sentiment/BTC",
         "subscriptions": "/billing/pricing",
         "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
+        "dataset": "/dataset/info",
         "docs": "/docs",
     }
 
