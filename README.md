@@ -121,6 +121,17 @@ far as CSV or JSON via `GET /dataset/export`. See [DATASET.md](DATASET.md)
 (there's no backfilled history -- it only has data from whenever you turn
 the snapshot loop on).
 
+## Also on RapidAPI
+
+Listed on the [RapidAPI Hub](https://rapidapi.com/whatevercat/api/crypto-sentiment-analysis)
+for developers who'd rather discover and pay for it through RapidAPI's
+marketplace instead of Stripe or x402 directly. Same underlying data,
+served from `GET /rapidapi/sentiment/{symbol}` -- traffic is only accepted
+when it's routed through RapidAPI's proxy (validated via a shared secret
+header), so this endpoint isn't meant to be called directly. Plans there
+mirror the Stripe tiers: Free (100 req/mo), $15/mo (3,000 req), $59/mo
+(15,000 req).
+
 ## API reference
 
 | Endpoint | Price | Description |
