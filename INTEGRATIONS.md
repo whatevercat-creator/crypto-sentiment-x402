@@ -103,3 +103,11 @@ control, it doesn't invent a delivery destination on its own.
 
 Requires a Starter/Pro tier key (same as Zapier above, since this reuses
 the same `watches` table and channel).
+
+**Keep the subscription active.** The key in your webhook URL only works
+while its Stripe subscription is `active` -- cancel or refund it and the
+key flips to `canceled`, and every alert delivery after that gets a
+`403 This subscription is not active.` (TradingView will show this as a
+"webhook delivery failed" error on the alert.) If you're testing this
+end-to-end, expect to either keep the subscription running afterward or
+re-point the alert at a fresh active key once you're done testing.
