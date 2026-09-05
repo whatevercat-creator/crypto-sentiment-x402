@@ -69,7 +69,7 @@ server.register(CAIP2_NETWORK, ExactEvmServerScheme())
 server.register_extension(bazaar_resource_server_extension)
 
 routes = {
-    "GET /sentiment/*": RouteConfig(
+    "GET /sentiment/:symbol": RouteConfig(
         accepts=[
             PaymentOption(
                 scheme="exact",
