@@ -132,7 +132,7 @@ def _require_dataset_access(api_key: str) -> dict:
     return info
 
 
-@router.get("/info")
+@router.get("/info", openapi_extra={"security": []})
 def dataset_info():
     with _db() as conn:
         row = conn.execute(
@@ -150,7 +150,7 @@ def dataset_info():
     }
 
 
-@router.get("/export")
+@router.get("/export", openapi_extra={"security": []})
 def dataset_export(
     x_api_key: str = Header(..., alias="X-API-Key"),
     format: str = Query("csv", pattern="^(csv|json)$"),

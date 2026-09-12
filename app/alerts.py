@@ -106,7 +106,7 @@ class WatchCreate(BaseModel):
         return v
 
 
-@router.post("/watch")
+@router.post("/watch", openapi_extra={"security": []})
 def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Key")):
     key_info = get_key_info(x_api_key)
     tier = key_info["tier"]
@@ -174,7 +174,7 @@ def list_watches(x_api_key: str = Header(..., alias="X-API-Key")):
     return {"watches": [dict(r) for r in rows]}
 
 
-@router.delete("/watch/{watch_id}")
+@router.delete("/watch/{watch_id}", openapi_extra={"security": []})
 def delete_watch(watch_id: int, x_api_key: str = Header(..., alias="X-API-Key")):
     get_key_info(x_api_key)
     with _db() as conn:
@@ -187,7 +187,7 @@ def delete_watch(watch_id: int, x_api_key: str = Header(..., alias="X-API-Key"))
     return {"status": "canceled", "id": watch_id}
 
 
-@router.get("/history")
+@router.get("/history", openapi_extra={"security": []})
 def alert_history(x_api_key: str = Header(..., alias="X-API-Key"), limit: int = 20):
     get_key_info(x_api_key)
     limit = max(1, min(limit, 100))

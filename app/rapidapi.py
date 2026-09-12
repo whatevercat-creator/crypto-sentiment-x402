@@ -34,7 +34,7 @@ router = APIRouter(prefix="/rapidapi", tags=["rapidapi"])
 RAPIDAPI_PROXY_SECRET = os.environ.get("RAPIDAPI_PROXY_SECRET", "")
 
 
-@router.get("/sentiment/{symbol}")
+@router.get("/sentiment/{symbol}", openapi_extra={"security": []})
 async def rapidapi_sentiment(
     symbol: str,
     x_rapidapi_proxy_secret: str | None = Header(None, alias="X-RapidAPI-Proxy-Secret"),

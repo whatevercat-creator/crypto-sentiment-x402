@@ -124,7 +124,7 @@ class FreeSignup(BaseModel):
     email: str
 
 
-@router.get("/pricing")
+@router.get("/pricing", openapi_extra={"security": []})
 def pricing():
     return {
         "pay_per_call": {
@@ -150,7 +150,7 @@ def pricing():
     }
 
 
-@router.post("/signup-free")
+@router.post("/signup-free", openapi_extra={"security": []})
 def signup_free(body: FreeSignup):
     key = _new_key()
     now = _now_iso()
@@ -170,7 +170,7 @@ def signup_free(body: FreeSignup):
     }
 
 
-@router.post("/checkout/{tier}")
+@router.post("/checkout/{tier}", openapi_extra={"security": []})
 def create_checkout(tier: str):
     if tier not in ("starter", "pro", "data"):
         raise HTTPException(400, "tier must be 'starter', 'pro', or 'data' (use /billing/signup-free for the free tier)")
@@ -193,7 +193,7 @@ def create_checkout(tier: str):
     return {"checkout_url": session.url}
 
 
-@router.get("/success")
+@router.get("/success", openapi_extra={"security": []})
 def checkout_success(session_id: str):
     if not stripe.api_key:
         raise HTTPException(503, "Stripe isn't configured on this deployment.")
@@ -228,12 +228,12 @@ def checkout_success(session_id: str):
     )
 
 
-@router.get("/cancel")
+@router.get("/cancel", openapi_extra={"security": []})
 def checkout_cancel():
     return {"status": "checkout canceled, no charge made"}
 
 
-@router.post("/webhook")
+@router.post("/webhook", openapi_extra={"security": []})
 async def stripe_webhook(request: Request):
     if not WEBHOOK_SECRET:
         raise HTTPException(503, "STRIPE_WEBHOOK_SECRET is not configured on this deployment.")

@@ -122,7 +122,10 @@ routes = {
     # instead of the x402 payment middleware.
 }
 
-app = FastAPI(title="Crypto Sentiment API (x402)")
+app = FastAPI(
+    title="Crypto Sentiment API (x402)",
+    contact={"email": "whatevercat@gmail.com"},
+)
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
 app.include_router(billing_router)
 app.include_router(alerts_router)
@@ -151,7 +154,7 @@ async def _shutdown():
             task.cancel()
 
 
-@app.get("/")
+@app.get("/", openapi_extra={"security": []})
 async def root():
     return {
         "name": "Crypto Sentiment API",
@@ -169,7 +172,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.get("/health", openapi_extra={"security": []})
 async def health():
     return {"status": "ok"}
 
@@ -184,7 +187,7 @@ async def get_sentiment(symbol: str):
     return JSONResponse(payload)
 
 
-@app.get("/v1/sentiment/{symbol}")
+@app.get("/v1/sentiment/{symbol}", openapi_extra={"security": []})
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
     """Stripe-subscription lane -- gated by an API key issued via /billing/*."""
     usage = verify_and_charge_api_key(x_api_key)

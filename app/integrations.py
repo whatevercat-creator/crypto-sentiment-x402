@@ -70,7 +70,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-@router.post("/tradingview/{api_key}")
+@router.post("/tradingview/{api_key}", openapi_extra={"security": []})
 async def tradingview_webhook(api_key: str, request: Request):
     key_info = get_key_info(api_key)  # raises 401/403 for invalid/inactive keys
 
