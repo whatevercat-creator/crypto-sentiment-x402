@@ -149,7 +149,7 @@ class AddWWWAuthenticateMiddleware(BaseHTTPMiddleware):
 
 app = FastAPI(
     title="Crypto Sentiment API (x402)",
-    contact={"email": "whatevercat@gmail.com"},
+    contact={"email": "hi@forgealone.com"},
 )
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
 app.add_middleware(AddWWWAuthenticateMiddleware)
@@ -236,7 +236,7 @@ Greed Index (alternative.me). Scored with VADER sentiment analysis plus a
 crypto slang lexicon. Reddit is intentionally not used -- see /transparency.
 
 ## Contact
-whatevercat@gmail.com
+hi@forgealone.com
 """
     return PlainTextResponse(body)
 
@@ -258,7 +258,7 @@ async def well_known_x402():
         ],
         "attestation": {"type": "none"},
         "docs": f"{PUBLIC_BASE_URL}/docs",
-        "contact": "whatevercat@gmail.com",
+        "contact": "hi@forgealone.com",
         "updated": "2026-09-18T00:00:00Z",
     }
 
@@ -267,7 +267,7 @@ async def well_known_x402():
 async def security_txt():
     """RFC 9116 security contact file."""
     body = (
-        "Contact: mailto:whatevercat@gmail.com\n"
+        "Contact: mailto:hi@forgealone.com\n"
         "Expires: 2027-09-18T00:00:00.000Z\n"
         "Preferred-Languages: en\n"
     )
@@ -278,7 +278,7 @@ async def security_txt():
 async def transparency():
     return {
         "operator": "Independently run by a solo developer",
-        "contact": "whatevercat@gmail.com",
+        "contact": "hi@forgealone.com",
         "what_this_api_does": (
             "Aggregates real-time crypto sentiment from public crypto news RSS "
             "feeds and the Fear & Greed Index, scored with VADER sentiment "
