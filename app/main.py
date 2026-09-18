@@ -26,7 +26,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from cdp.x402 import create_facilitator_config
 
@@ -51,6 +52,9 @@ from app.sentiment_service import compute_sentiment_payload
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
 NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")
 PRICE_USD = os.environ.get("X402_PRICE_USD", "$0.01")
+PUBLIC_BASE_URL = os.environ.get(
+    "APP_BASE_URL", "https://crypto-sentiment-x402.onrender.com"
+).rstrip("/")
 
 if not PAY_TO_ADDRESS:
     raise RuntimeError(
@@ -125,11 +129,30 @@ routes = {
     # instead of the x402 payment middleware.
 }
 
+class AddWWWAuthenticateMiddleware(BaseHTTPMiddleware):
+    """Adds a WWW-Authenticate: Payment header to 402 responses.
+
+    Not part of the x402 v2 header set (PAYMENT-REQUIRED/-SIGNATURE/-RESPONSE
+    already carry everything an x402-aware client needs) -- this is purely
+    so a generic HTTP client that only understands RFC 9110 can tell a 402
+    means "payment needed" without knowing about x402 at all. Registered
+    after PaymentMiddlewareASGI so it wraps around it and can see/amend the
+    402 response PaymentMiddlewareASGI returns.
+    """
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if response.status_code == 402:
+            response.headers["WWW-Authenticate"] = "Payment"
+        return response
+
+
 app = FastAPI(
     title="Crypto Sentiment API (x402)",
     contact={"email": "whatevercat@gmail.com"},
 )
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
+app.add_middleware(AddWWWAuthenticateMiddleware)
 app.include_router(billing_router)
 app.include_router(alerts_router)
 app.include_router(dataset_router)
@@ -178,6 +201,120 @@ async def root():
 @app.get("/health", openapi_extra={"security": []})
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/llms.txt", openapi_extra={"security": []})
+async def llms_txt():
+    body = f"""# Crypto Sentiment API
+
+Real-time crypto market sentiment for AI agents, priced and paid per call
+in USDC on Base via the x402 protocol. No account, API key, or
+subscription required for this lane.
+
+## Paid endpoint (x402)
+GET {PUBLIC_BASE_URL}/sentiment/{{symbol}}
+Price: {PRICE_USD} USDC per call (see the live HTTP 402 response for the
+exact current price -- this text file is not the source of truth)
+Network: Base ({NETWORK_MODE}), x402 scheme "exact"
+Example: GET /sentiment/BTC
+
+## Alternative access (not x402)
+- GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota
+  (see /billing/pricing)
+- GET /rapidapi/sentiment/{{symbol}} -- RapidAPI-proxied traffic only
+
+## Discovery
+- OpenAPI spec: /openapi.json
+- x402 discovery manifest: /.well-known/x402
+- Interactive docs: /docs
+- Transparency: /transparency
+
+## Data sources
+8 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
+Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato) and the Fear &
+Greed Index (alternative.me). Scored with VADER sentiment analysis plus a
+crypto slang lexicon. Reddit is intentionally not used -- see /transparency.
+
+## Contact
+whatevercat@gmail.com
+"""
+    return PlainTextResponse(body)
+
+
+@app.get("/.well-known/x402", openapi_extra={"security": []})
+async def well_known_x402():
+    """x402 discovery manifest -- see draft-hawkins-x402-dns-discovery."""
+    return {
+        "x402Version": 2,
+        "kind": "resource-server",
+        "name": "Crypto Sentiment API",
+        "description": "Real-time crypto sentiment for AI agents, paid per call in USDC on Base.",
+        "resources": [
+            {
+                "url": f"{PUBLIC_BASE_URL}/sentiment/{{symbol}}",
+                "method": "GET",
+                "description": "Real-time crypto sentiment for a ticker symbol, e.g. BTC, ETH, SOL.",
+            }
+        ],
+        "attestation": {"type": "none"},
+        "docs": f"{PUBLIC_BASE_URL}/docs",
+        "contact": "whatevercat@gmail.com",
+        "updated": "2026-09-18T00:00:00Z",
+    }
+
+
+@app.get("/.well-known/security.txt", openapi_extra={"security": []})
+async def security_txt():
+    """RFC 9116 security contact file."""
+    body = (
+        "Contact: mailto:whatevercat@gmail.com\n"
+        "Expires: 2027-09-18T00:00:00.000Z\n"
+        "Preferred-Languages: en\n"
+    )
+    return PlainTextResponse(body)
+
+
+@app.get("/transparency", openapi_extra={"security": []})
+async def transparency():
+    return {
+        "operator": "Independently run by a solo developer",
+        "contact": "whatevercat@gmail.com",
+        "what_this_api_does": (
+            "Aggregates real-time crypto sentiment from public crypto news RSS "
+            "feeds and the Fear & Greed Index, scored with VADER sentiment "
+            "analysis plus a crypto slang lexicon."
+        ),
+        "data_sources": [
+            "coindesk.com RSS",
+            "cointelegraph.com RSS",
+            "decrypt.co RSS",
+            "bitcoinmagazine.com RSS",
+            "theblock.co RSS",
+            "cryptoslate.com RSS",
+            "newsbtc.com RSS",
+            "cryptopotato.com RSS",
+            "alternative.me Fear & Greed Index",
+        ],
+        "sources_intentionally_not_used": {
+            "reddit": (
+                "Removed -- Reddit's Responsible Builder Policy prohibits "
+                "commercial use of their data without written approval, which "
+                "this paid API would violate."
+            ),
+        },
+        "pricing": {
+            "x402_pay_per_call": {
+                "price_usd": PRICE_USD,
+                "network": NETWORK_MODE,
+                "endpoint": "GET /sentiment/{symbol}",
+            },
+            "subscriptions": "see /billing/pricing",
+        },
+        "no_hidden_fees": (
+            "The price quoted in the x402 402 response is the full price -- "
+            "no additional fees are added at settlement."
+        ),
+    }
 
 
 @app.get("/sentiment/{symbol}")
