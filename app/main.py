@@ -21,6 +21,9 @@ Env vars (see .env.example):
 
 import os
 import asyncio
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse
