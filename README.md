@@ -5,8 +5,8 @@ subscriptions — agents discover it, get an HTTP 402, pay in USDC on Base,
 and get the data.
 
 **Sentiment sources (all free, no keys required):**
-- Reddit (r/CryptoCurrency, r/Bitcoin, r/CryptoMarkets) — public JSON endpoints
-- Crypto news RSS — CoinDesk, Cointelegraph, Decrypt
+- Crypto news RSS (8 outlets) — CoinDesk, Cointelegraph, Decrypt, Bitcoin
+  Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato
 - Fear & Greed Index — alternative.me
 
 **Scoring:** VADER sentiment analysis, extended with a crypto slang lexicon
@@ -162,20 +162,19 @@ Example paid response:
     "neutral_pct": 30.0
   },
   "breakdown": {
-    "reddit": { "...": "..." },
     "news": { "...": "..." },
     "fear_greed_index": { "value": 62, "classification": "Greed" }
   },
-  "sources": ["reddit.com (...)", "coindesk.com RSS", "..."]
+  "sources": ["coindesk.com RSS", "..."]
 }
 ```
 
 ## Notes and limitations
 
-- Reddit's public JSON endpoints are unauthenticated and can be rate-limited
-  or blocked under heavy load. If you outgrow them, swap `app/sources/reddit.py`
-  for a free Reddit "script" app + [PRAW](https://praw.readthedocs.io/)
-  (still free, just requires registering an app).
+- Reddit was removed as a source: Reddit's Responsible Builder Policy
+  prohibits commercial use of their data without written approval, which
+  this paid API would violate. `app/sources/reddit.py` is left in the repo
+  unused in case that changes in the future.
 - Coin coverage: `app/coins.py` has a starter list of ~15 symbols. Add more
   as needed — unmapped symbols still work, just with slightly less accurate
   news matching (falls back to matching on the symbol itself).

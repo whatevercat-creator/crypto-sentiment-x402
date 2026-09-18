@@ -1,7 +1,7 @@
 """
 Crypto Sentiment API — x402-gated, with an optional Stripe-subscription lane
 
-Free-source aggregate crypto sentiment (Reddit + crypto news RSS + Fear &
+Free-source aggregate crypto sentiment (8 crypto news RSS outlets + Fear &
 Greed Index), scored with VADER + a crypto slang lexicon.
 
 Two ways to buy it:
@@ -81,7 +81,7 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates Reddit, crypto news (CoinDesk, Cointelegraph, Decrypt), and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
+        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 8 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
         mime_type="application/json",
         extensions={
             **declare_discovery_extension(

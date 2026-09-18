@@ -10,6 +10,11 @@ RSS_FEEDS = [
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
     "https://decrypt.co/feed",
+    "https://bitcoinmagazine.com/.rss/full/",
+    "https://www.theblock.co/rss.xml",
+    "https://cryptoslate.com/feed/",
+    "https://www.newsbtc.com/feed/",
+    "https://cryptopotato.com/feed/",
 ]
 
 
@@ -21,7 +26,11 @@ async def fetch_news_headlines(symbol: str, name: str, limit_per_feed: int = 30)
     texts: List[str] = []
     needles = {symbol.lower(), name.lower()}
 
-    async with httpx.AsyncClient(timeout=10, headers={"User-Agent": "crypto-sentiment-x402/1.0"}) as client:
+    async with httpx.AsyncClient(
+        timeout=10,
+        headers={"User-Agent": "crypto-sentiment-x402/1.0"},
+        follow_redirects=True,
+    ) as client:
         for feed_url in RSS_FEEDS:
             try:
                 resp = await client.get(feed_url)
