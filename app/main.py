@@ -16,6 +16,7 @@ Env vars (see .env.example):
   X402_PRICE_USD       - price per call, e.g. "$0.01" (default)
   CDP_API_KEY_ID        - required (CDP facilitator handles both testnet & mainnet)
   CDP_API_KEY_SECRET    - required
+  (Hot->cold wallet sweep env vars are documented in app/sweep.py)
   (Stripe subscription env vars are documented in app/billing.py)
 """
 
@@ -48,6 +49,7 @@ from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app.rapidapi import router as rapidapi_router
 from app.integrations import router as integrations_router
 from app.sentiment_service import compute_sentiment_payload
+from app.sweep import sweep_loop
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
 NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")
@@ -161,21 +163,23 @@ app.include_router(integrations_router)
 
 _alert_task = None
 _snapshot_task = None
+_sweep_task = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _alert_task, _snapshot_task
+    global _alert_task, _snapshot_task, _sweep_task
     init_db()
     init_alerts_db()
     init_dataset_db()
     _alert_task = asyncio.create_task(poll_loop())
     _snapshot_task = asyncio.create_task(snapshot_loop())
+    _sweep_task = asyncio.create_task(sweep_loop())
 
 
 @app.on_event("shutdown")
 async def _shutdown():
-    for task in (_alert_task, _snapshot_task):
+    for task in (_alert_task, _snapshot_task, _sweep_task):
         if task is not None:
             task.cancel()
 
