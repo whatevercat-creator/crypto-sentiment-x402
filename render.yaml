@@ -41,7 +41,7 @@ services:
       - key: SWEEP_THRESHOLD_USD
         value: "1.00"
       - key: SWEEP_DRY_RUN
-        value: "1"
+        value: "0"
     healthCheckPath: /health
     disk:
       name: billing-data
