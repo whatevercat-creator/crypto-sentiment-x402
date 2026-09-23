@@ -1,0 +1,55 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.whatevercat-creator/crypto-sentiment-x402",
+  "version": "0.1.0",
+  "description": "Real-time crypto sentiment for a ticker symbol from 8 news RSS feeds and the Fear & Greed Index",
+  "repository": {
+    "url": "https://github.com/whatevercat-creator/crypto-sentiment-x402",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "crypto-sentiment-x402-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "runtimeArguments": [
+        { "type": "positional", "value": "crypto-sentiment-x402-mcp" }
+      ],
+      "environmentVariables": [
+        {
+          "name": "CDP_API_KEY_ID",
+          "description": "Coinbase Developer Platform API key ID (portal.cdp.coinbase.com). Used to sign x402 payments from your own wallet.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "CDP_API_KEY_SECRET",
+          "description": "Coinbase Developer Platform API key secret, paired with CDP_API_KEY_ID.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "CDP_WALLET_NAME",
+          "description": "Name of the CDP wallet to create/reuse for payments. Defaults to \"crypto-sentiment-mcp-wallet\". Must hold USDC (+ a little ETH for gas) on the configured network.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "SENTIMENT_API_URL",
+          "description": "Base URL of the deployed sentiment API. Defaults to https://crypto-sentiment-x402.onrender.com.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "X402_NETWORK",
+          "description": "\"mainnet\" (default, real USDC on Base) or \"testnet\" (free Base Sepolia USDC).",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
