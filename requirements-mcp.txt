@@ -1,4 +1,9 @@
 # Extra deps for mcp_server.py, on top of requirements.txt (cdp-sdk + x402
 # are already there for the API itself). Install both:
 #   pip install -r requirements.txt -r requirements-mcp.txt
-mcp>=1.2.0
+#
+# Pinned to the v2 line explicitly: mcp 2.x renamed FastMCP -> MCPServer and
+# dropped the mcp.server.fastmcp module with no compat shim, so an open
+# ">=1.2.0" floor breaks on a fresh install today. Bump the upper bound
+# deliberately, not by accident.
+mcp>=2.2.0,<3
