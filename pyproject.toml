@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-sentiment-x402-mcp"
+version = "0.1.0"
+description = "MCP server exposing real-time crypto sentiment (8 crypto news RSS feeds + the Fear & Greed Index) as a pay-per-call x402 tool on Base."
+readme = "MCP.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE-MCP"]
+authors = [{ name = "whatevercat-creator" }]
+keywords = ["mcp", "x402", "crypto", "sentiment", "agents"]
+dependencies = [
+    "mcp>=2.2.0,<3",
+    "cdp-sdk",
+    "x402[httpx]>=0.1.0",
+]
+
+[project.urls]
+Repository = "https://github.com/whatevercat-creator/crypto-sentiment-x402"
+Homepage = "https://github.com/whatevercat-creator/crypto-sentiment-x402"
+
+[project.scripts]
+crypto-sentiment-x402-mcp = "crypto_sentiment_x402_mcp:main"
+
+[tool.setuptools.packages.find]
+include = ["crypto_sentiment_x402_mcp*"]

@@ -1,8 +1,12 @@
 venv/
 .venv/
+.venv-mcp/
 __pycache__/
 *.pyc
 .env
 .DS_Store
 billing.db
 billing.db-journal
+*.egg-info/
+build/
+dist/

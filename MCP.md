@@ -1,20 +1,39 @@
 # MCP server
 
-`mcp_server.py` exposes the sentiment API as an MCP tool (`crypto_sentiment`)
-so Claude Desktop, Claude Code, or any other MCP client can call it directly
-as part of an agent's normal tool use — no separate HTTP client code needed
-on the caller's side.
+mcp-name: io.github.whatevercat-creator/crypto-sentiment-x402
+
+The `crypto_sentiment_x402_mcp` package exposes the sentiment API as an MCP
+tool (`crypto_sentiment`) so Claude Desktop, Claude Code, or any other MCP
+client can call it directly as part of an agent's normal tool use — no
+separate HTTP client code needed on the caller's side.
 
 **Payment model:** the MCP server itself holds a wallet (via Coinbase
 Developer Platform) and pays the API's x402 price out of that wallet for
-every call. There's no free tier — whoever runs this MCP server funds the
-wallet it uses. If you're publishing this for others to run themselves,
-each person funds their own.
+every call, entirely inside your own local process — invisible to the MCP
+protocol layer, so it works in Claude Desktop (or any other stock MCP
+client) exactly like a normal, unpaid MCP server would. There's no free
+tier — whoever runs this MCP server funds the wallet it uses. If you're
+handing it to someone else to run, they fund their own wallet, not you.
 
 ## 1. Install
 
 ```bash
-pip install -r requirements.txt -r requirements-mcp.txt
+pip install crypto-sentiment-x402-mcp
+```
+
+(`uvx crypto-sentiment-x402-mcp` works too, and needs no separate install
+step.)
+
+**Don't install this into the same environment as the FastAPI service**
+(`requirements.txt`). `mcp>=2` pulls in a much newer `starlette` than
+FastAPI 0.115.0 tolerates (`starlette<0.39.0,>=0.37.2`) — mixing the two in
+one venv breaks `app/main.py` at import time (`Router.__init__() got an
+unexpected keyword argument 'on_startup'`). If you're hacking on this repo
+and want both, give the MCP package its own venv:
+
+```bash
+python3 -m venv .venv-mcp && source .venv-mcp/bin/activate
+pip install -r requirements-mcp.txt cdp-sdk x402
 ```
 
 ## 2. Create a CDP API key and fund a wallet
@@ -40,8 +59,7 @@ pip install -r requirements.txt -r requirements-mcp.txt
 {
   "mcpServers": {
     "crypto-sentiment": {
-      "command": "python",
-      "args": ["/absolute/path/to/crypto-sentiment-x402/mcp_server.py"],
+      "command": "crypto-sentiment-x402-mcp",
       "env": {
         "CDP_API_KEY_ID": "your-key-id",
         "CDP_API_KEY_SECRET": "your-key-secret",
@@ -54,11 +72,17 @@ pip install -r requirements.txt -r requirements-mcp.txt
 }
 ```
 
+(That assumes `pip install crypto-sentiment-x402-mcp` put the console script
+on `PATH` for whatever Python Claude Desktop launches with. If you'd rather
+not rely on `PATH`, point `command` at the interpreter and
+`args: ["-m", "crypto_sentiment_x402_mcp"]`, or, from a repo clone, at
+`mcp_server.py` directly, same as before — both still work.)
+
 **Claude Code** — same shape, either via `claude mcp add` or a project
 `.mcp.json` with the same `mcpServers` block.
 
 Any other MCP-compatible client works the same way: it just needs a command
-to launch `mcp_server.py` with those env vars set.
+to launch the server with those env vars set.
 
 ## 4. Use it
 
@@ -75,3 +99,9 @@ paying wallet's address to check.
   instead.
 - This is a separate process/wallet from `client.py` (a one-off test
   script) — both pay the same API, just for different purposes.
+
+## License
+
+MIT (see `LICENSE-MCP`) — this package only. The rest of this repository,
+including the hosted API in `app/`, remains All Rights Reserved under the
+root `LICENSE`.
