@@ -41,6 +41,8 @@ async def compute_sentiment_payload(symbol: str) -> dict:
             "cryptoslate.com RSS",
             "newsbtc.com RSS",
             "cryptopotato.com RSS",
+            "thedefiant.io RSS",
+            "dlnews.com RSS",
             "alternative.me Fear & Greed Index",
         ],
     }

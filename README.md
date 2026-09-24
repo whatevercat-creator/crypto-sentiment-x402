@@ -5,8 +5,9 @@ subscriptions — agents discover it, get an HTTP 402, pay in USDC on Base,
 and get the data.
 
 **Sentiment sources (all free, no keys required):**
-- Crypto news RSS (8 outlets) — CoinDesk, Cointelegraph, Decrypt, Bitcoin
-  Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato
+- Crypto news RSS (10 outlets) — CoinDesk, Cointelegraph, Decrypt, Bitcoin
+  Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL
+  News
 - Fear & Greed Index — alternative.me
 
 **Scoring:** VADER sentiment analysis, extended with a crypto slang lexicon
