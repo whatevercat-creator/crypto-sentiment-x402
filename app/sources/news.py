@@ -15,6 +15,8 @@ RSS_FEEDS = [
     "https://cryptoslate.com/feed/",
     "https://www.newsbtc.com/feed/",
     "https://cryptopotato.com/feed/",
+    "https://thedefiant.io/feed",
+    "https://www.dlnews.com/arc/outboundfeeds/rss/",
 ]
 
 

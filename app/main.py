@@ -1,7 +1,7 @@
 """
 Crypto Sentiment API — x402-gated, with an optional Stripe-subscription lane
 
-Free-source aggregate crypto sentiment (8 crypto news RSS outlets + Fear &
+Free-source aggregate crypto sentiment (10 crypto news RSS outlets + Fear &
 Greed Index), scored with VADER + a crypto slang lexicon.
 
 Two ways to buy it:
@@ -87,7 +87,7 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 8 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
+        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL News) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
         mime_type="application/json",
         extensions={
             **declare_discovery_extension(
@@ -234,10 +234,11 @@ Example: GET /sentiment/BTC
 - Transparency: /transparency
 
 ## Data sources
-8 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
-Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato) and the Fear &
-Greed Index (alternative.me). Scored with VADER sentiment analysis plus a
-crypto slang lexicon. Reddit is intentionally not used -- see /transparency.
+10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
+Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL
+News) and the Fear & Greed Index (alternative.me). Scored with VADER
+sentiment analysis plus a crypto slang lexicon. Reddit is intentionally not
+used -- see /transparency.
 
 ## Contact
 hi@forgealone.com
@@ -297,6 +298,8 @@ async def transparency():
             "cryptoslate.com RSS",
             "newsbtc.com RSS",
             "cryptopotato.com RSS",
+            "thedefiant.io RSS",
+            "dlnews.com RSS",
             "alternative.me Fear & Greed Index",
         ],
         "sources_intentionally_not_used": {
