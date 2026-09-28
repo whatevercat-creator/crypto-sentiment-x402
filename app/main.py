@@ -174,6 +174,30 @@ app = FastAPI(
     title="Crypto Sentiment API (x402)",
     contact={"email": "hi@forgealone.com"},
 )
+X_GUIDANCE = (
+     "Use this API to get a current news-based sentiment reading for one crypto "
+     "ticker (e.g. BTC, ETH, SOL). Call GET /sentiment/{symbol} with the ticker "
+     "as the path parameter and no query parameters. It costs $0.01 per call, "
+     "paid in USDC on Base via the x402 protocol: an unpaid request returns HTTP "
+     "402 with the payment requirements in accepts[], and the same request "
+     "retried with a valid payment returns the result. The response is JSON with "
+     "a bullish/bearish/neutral label, a numeric sentiment score, and a "
+     "per-source breakdown built from 10 crypto news outlets plus the Fear & "
+     "Greed Index. Use it as one input for market research or trading agents. "
+     "It measures news sentiment only; it is not a price prediction or "
+     "financial advice."
+)
+
+_base_openapi = app.openapi
+
+
+def _openapi_with_guidance():
+     schema = _base_openapi()
+     schema.setdefault("info", {})["x-guidance"] = X_GUIDANCE
+     return schema
+
+
+app.openapi = _openapi_with_guidance
 app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
 app.add_middleware(AddWWWAuthenticateMiddleware)
 app.include_router(billing_router)
