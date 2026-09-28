@@ -21,6 +21,7 @@ Env vars (see .env.example):
 """
 
 import os
+import json
 import asyncio
 import logging
 
@@ -202,8 +203,23 @@ async def root():
         "dataset": "/dataset/info",
         "rapidapi": "/rapidapi/sentiment/{symbol} (RapidAPI-proxied traffic only)",
         "integrations": "/integrations/tradingview/{api_key} (relays TradingView alerts through your existing /alerts/watch channels)",
+        "signal_validation": "/validation (does the score lead or lag price? published whatever it shows)",
         "docs": "/docs",
     }
+
+
+_VALIDATION_PATH = os.path.join(os.path.dirname(__file__), "validation.json")
+
+
+@app.get("/validation", openapi_extra={"security": []})
+async def validation():
+    """Lead/lag of the sentiment score vs price. Free. Updated by
+    scripts/leadlag.py --out app/validation.json, then committed."""
+    try:
+        with open(_VALIDATION_PATH) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"status": "measuring", "detail": "validation results not available yet"}
 
 
 @app.get("/health", openapi_extra={"security": []})
@@ -236,6 +252,7 @@ Example: GET /sentiment/BTC
 - x402 discovery manifest: /.well-known/x402
 - Interactive docs: /docs
 - Transparency: /transparency
+- Signal validation (does the score lead or lag price?): /validation
 
 ## Data sources
 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
@@ -321,6 +338,10 @@ async def transparency():
             },
             "subscriptions": "see /billing/pricing",
         },
+        "signal_validation": (
+            "Whether the score leads or lags price is measured on hourly "
+            "data and published at /validation, including unflattering results."
+        ),
         "no_hidden_fees": (
             "The price quoted in the x402 402 response is the full price -- "
             "no additional fees are added at settlement."

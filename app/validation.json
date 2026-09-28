@@ -1,0 +1,18 @@
+{
+  "question": "Does the sentiment score lead, coincide with, or lag price?",
+  "method": "Hourly change in average_compound vs hourly log return (Coinbase SYMBOL-USD candles), cross-correlation at offsets -12h..+12h. Positive offset = price moves after sentiment (sentiment leads). Significance uses a Bonferroni-corrected threshold across all 25 offsets. Script: scripts/leadlag.py.",
+  "honest_prior": "Scored from published news headlines, so the expectation is coincident-to-lagging. Results will be published here whatever they show.",
+  "updated": "2026-09-28T13:00:00+00:00",
+  "symbols": {
+    "BTC": {
+      "status": "measuring",
+      "logging_since": "2026-09-28T13:00:00+00:00",
+      "first_results_expected": "2026-10-12"
+    },
+    "ETH": {
+      "status": "measuring",
+      "logging_since": "2026-09-28T13:00:00+00:00",
+      "first_results_expected": "2026-10-12"
+    }
+  }
+}
