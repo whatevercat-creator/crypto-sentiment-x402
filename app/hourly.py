@@ -101,10 +101,25 @@ async def _log_symbol_if_needed(symbol: str) -> None:
     )
 
 
-def _seconds_until_next_hour() -> float:
+def _next_hour_start() -> datetime:
     now = datetime.now(timezone.utc)
-    next_hour = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    return (next_hour - now).total_seconds()
+    return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
+async def _sleep_until(target: datetime) -> None:
+    """Sleep until the wall clock has actually passed target.
+
+    asyncio.sleep can return a few ms early relative to datetime.now() (it
+    uses a monotonic clock). Waking at e.g. 21:59:59.998 made the first
+    symbol's "already logged this hour?" check look at the PREVIOUS hour,
+    so it skipped and that hour was lost (BTC missed 2026-09-28 22:00Z).
+    Loop until the wall clock is past target, plus a small margin.
+    """
+    while True:
+        remaining = (target - datetime.now(timezone.utc)).total_seconds()
+        if remaining <= 0:
+            return
+        await asyncio.sleep(remaining + 0.05)
 
 
 async def hourly_loop() -> None:
@@ -114,7 +129,7 @@ async def hourly_loop() -> None:
 
     logger.info("[hourly] enabled: logging %s at the top of every UTC hour", ",".join(HOURLY_SYMBOLS))
     while True:
-        await asyncio.sleep(_seconds_until_next_hour())
+        await _sleep_until(_next_hour_start())
         for symbol in HOURLY_SYMBOLS:
             try:
                 await _log_symbol_if_needed(symbol)
