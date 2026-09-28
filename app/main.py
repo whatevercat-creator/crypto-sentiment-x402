@@ -38,7 +38,7 @@ from cdp.x402 import create_facilitator_config
 
 from x402.http import HTTPFacilitatorClient, PaymentOption
 from x402.http.middleware.fastapi import PaymentMiddlewareASGI
-from x402.http.types import RouteConfig
+from x402.http.types import PaywallConfig, RouteConfig
 from x402.server import x402ResourceServer
 from x402.mechanisms.evm.exact import ExactEvmServerScheme
 from x402.extensions.bazaar import (
@@ -198,7 +198,15 @@ def _openapi_with_guidance():
 
 
 app.openapi = _openapi_with_guidance
-app.add_middleware(PaymentMiddlewareASGI, routes=routes, server=server)
+app.add_middleware(
+       PaymentMiddlewareASGI,
+       routes=routes,
+       server=server,
+       paywall_config=PaywallConfig(
+           app_name="Crypto Sentiment API",
+           testnet=(NETWORK_MODE != "mainnet"),
+       ),
+   )
 app.add_middleware(AddWWWAuthenticateMiddleware)
 app.include_router(billing_router)
 app.include_router(alerts_router)
