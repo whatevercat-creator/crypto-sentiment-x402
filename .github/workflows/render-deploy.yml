@@ -1,0 +1,41 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+  workflow_dispatch: {}
+
+concurrency:
+  group: render-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check the deploy hook secret is set
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "::error::RENDER_DEPLOY_HOOK secret is not set."
+            exit 1
+          fi
+
+      - name: Wait if too close to the top of the UTC hour
+        run: |
+          m=$((10#$(date -u +%M))); s=$((10#$(date -u +%S)))
+          if [ "$m" -ge 55 ]; then wait=$(( (60 - m + 3) * 60 - s ))
+          elif [ "$m" -lt 3 ]; then wait=$(( (3 - m) * 60 - s ))
+          else wait=0; fi
+          echo "UTC $(date -u +%H:%M:%S); waiting ${wait}s"
+          sleep "$wait"
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          curl -fsS --retry 3 --retry-delay 10 -X POST "$RENDER_DEPLOY_HOOK" -o /dev/null -w "Render responded HTTP %{http_code}\n"
