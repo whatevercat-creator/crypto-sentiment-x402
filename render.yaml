@@ -34,6 +34,10 @@ services:
         sync: false
       - key: SNAPSHOT_INTERVAL_SECONDS
         value: "3600"
+      - key: HOURLY_ENABLED
+        value: "1"
+      - key: HOURLY_SYMBOLS
+        value: "BTC,ETH"
       - key: RAPIDAPI_PROXY_SECRET
         sync: false
       - key: SWEEP_TO_ADDRESS

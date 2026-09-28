@@ -69,3 +69,15 @@ curl "$APP_BASE_URL/dataset/export?format=csv" -H "X-API-Key: csk_..." -o histor
   first. Those are heavier integrations (seller registration, listing
   review) worth doing once there's a track record of the export actually
   being useful to someone.
+
+## Hourly log (internal, not sold)
+
+Separately from the daily table above, `app/hourly.py` logs one reading per
+symbol at the top of every UTC hour into its own `sentiment_hourly` table
+(symbol, exact UTC `observed_at`, `average_compound`, `sample_size`,
+`fear_greed_value`). It's for internal lead/lag analysis against price and
+is **not** included in `/dataset/export` or `/dataset/info`; read it
+straight from the sqlite file. `HOURLY_SYMBOLS` (default `BTC,ETH`) picks
+the symbols and `HOURLY_ENABLED=0` turns it off. Missed hours are left as
+gaps, and `fear_greed_value` only changes once a day since the index itself
+is daily. About 1.8 MB/year for two symbols.
