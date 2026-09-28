@@ -46,6 +46,7 @@ from x402.extensions.bazaar import (
 from app.billing import router as billing_router, init_db, verify_and_charge_api_key
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
+from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router
 from app.integrations import router as integrations_router
 from app.sentiment_service import compute_sentiment_payload
@@ -163,23 +164,26 @@ app.include_router(integrations_router)
 
 _alert_task = None
 _snapshot_task = None
+_hourly_task = None
 _sweep_task = None
 
 
 @app.on_event("startup")
 async def _startup():
-    global _alert_task, _snapshot_task, _sweep_task
+    global _alert_task, _snapshot_task, _hourly_task, _sweep_task
     init_db()
     init_alerts_db()
     init_dataset_db()
+    init_hourly_db()
     _alert_task = asyncio.create_task(poll_loop())
     _snapshot_task = asyncio.create_task(snapshot_loop())
+    _hourly_task = asyncio.create_task(hourly_loop())
     _sweep_task = asyncio.create_task(sweep_loop())
 
 
 @app.on_event("shutdown")
 async def _shutdown():
-    for task in (_alert_task, _snapshot_task, _sweep_task):
+    for task in (_alert_task, _snapshot_task, _hourly_task, _sweep_task):
         if task is not None:
             task.cancel()
 
