@@ -70,7 +70,8 @@ async def _log_symbol_if_needed(symbol: str) -> None:
             (symbol, hour_start.isoformat(), hour_end.isoformat()),
         ).fetchone()
     if row:
-        return  # already logged this hour
+        logger.info("[hourly] %s: already logged for %s, skipping", symbol, hour_start.strftime("%Y-%m-%d %H:00Z"))
+        return
 
     try:
         payload = await compute_sentiment_payload(symbol)
@@ -80,19 +81,24 @@ async def _log_symbol_if_needed(symbol: str) -> None:
 
     overall = payload["overall_sentiment"]
     fng = payload.get("breakdown", {}).get("fear_greed_index") or {}
+    observed_at = datetime.now(timezone.utc).isoformat()
+    compound = overall.get("average_compound")
+    sample_size = overall.get("sample_size")
+    fng_value = fng.get("value")
     with _db() as conn:
         conn.execute(
             "INSERT INTO sentiment_hourly "
             "(symbol, observed_at, average_compound, sample_size, fear_greed_value) "
             "VALUES (?, ?, ?, ?, ?)",
-            (
-                symbol,
-                datetime.now(timezone.utc).isoformat(),
-                overall.get("average_compound"),
-                overall.get("sample_size"),
-                fng.get("value"),
-            ),
+            (symbol, observed_at, compound, sample_size, fng_value),
         )
+        total = conn.execute(
+            "SELECT COUNT(*) FROM sentiment_hourly WHERE symbol = ?", (symbol,)
+        ).fetchone()[0]
+    logger.info(
+        "[hourly] %s: inserted observed_at=%s compound=%s n=%s fng=%s (total rows for %s: %d)",
+        symbol, observed_at, compound, sample_size, fng_value, symbol, total,
+    )
 
 
 def _seconds_until_next_hour() -> float:
@@ -106,6 +112,7 @@ async def hourly_loop() -> None:
         logger.info("[hourly] disabled: HOURLY_ENABLED is off")
         return
 
+    logger.info("[hourly] enabled: logging %s at the top of every UTC hour", ",".join(HOURLY_SYMBOLS))
     while True:
         await asyncio.sleep(_seconds_until_next_hour())
         for symbol in HOURLY_SYMBOLS:
