@@ -23,11 +23,14 @@ Env vars (see .env.example):
                             it here to whatever RapidAPI shows you.
 """
 
+import logging
 import os
 
 from fastapi import APIRouter, Header, HTTPException
 
 from app.sentiment_service import compute_sentiment_payload
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/rapidapi", tags=["rapidapi"])
 
@@ -38,6 +41,8 @@ RAPIDAPI_PROXY_SECRET = os.environ.get("RAPIDAPI_PROXY_SECRET", "")
 async def rapidapi_sentiment(
     symbol: str,
     x_rapidapi_proxy_secret: str | None = Header(None, alias="X-RapidAPI-Proxy-Secret"),
+    x_rapidapi_user: str | None = Header(None, alias="X-RapidAPI-User"),
+    x_rapidapi_subscription: str | None = Header(None, alias="X-RapidAPI-Subscription"),
 ):
     if not RAPIDAPI_PROXY_SECRET:
         raise HTTPException(
@@ -58,4 +63,11 @@ async def rapidapi_sentiment(
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+            
+    logger.info(
+           "[rapidapi-usage] symbol=%s user=%s plan=%s",
+           symbol.upper(),
+           x_rapidapi_user or "unknown",
+           x_rapidapi_subscription or "unknown",    
+    )  
     return payload
