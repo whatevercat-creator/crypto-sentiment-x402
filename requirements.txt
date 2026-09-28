@@ -7,3 +7,4 @@ cdp-sdk
 jsonschema
 python-dotenv==1.0.1
 stripe==15.5.1
+email-validator==2.3.0
