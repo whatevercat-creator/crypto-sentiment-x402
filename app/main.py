@@ -22,13 +22,16 @@ Env vars (see .env.example):
 
 import os
 import json
+import base64
+import binascii
 import asyncio
 import logging
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("app.main")
 
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from cdp.x402 import create_facilitator_config
@@ -93,19 +96,16 @@ routes = {
         mime_type="application/json",
         extensions={
             **declare_discovery_extension(
-                input={"method": "GET", "symbol": "BTC"},
-                input_schema={
+                # symbol is a PATH param (/sentiment/BTC), not a query param.
+                # No query params at all -- the method comes from the route key.
+                path_params_schema={
                     "properties": {
-                        "method": {
-                            "type": "string",
-                            "description": "HTTP method, always GET",
-                        },
                         "symbol": {
                             "type": "string",
-                            "description": "Uppercase ticker symbol, e.g. BTC, ETH, SOL",
+                            "description": "Uppercase ticker symbol in the URL path, e.g. BTC in /sentiment/BTC",
                         },
                     },
-                    "required": ["method", "symbol"],
+                    "required": ["symbol"],
                 },
                 output=OutputConfig(
                     example={
@@ -146,9 +146,28 @@ class AddWWWAuthenticateMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request, call_next):
         response = await call_next(request)
-        if response.status_code == 402:
-            response.headers["WWW-Authenticate"] = "Payment"
-        return response
+        if response.status_code != 402:
+            return response
+
+        # PaymentMiddlewareASGI puts the challenge only in the base64
+        # PAYMENT-REQUIRED header and returns an empty {} body. Some x402
+        # clients read accepts[] from the body, so mirror the decoded header
+        # there. Header is untouched and stays the source of truth.
+        body = b"".join([chunk async for chunk in response.body_iterator])
+        header = response.headers.get("payment-required")
+        if header and body.strip() in (b"", b"{}"):
+            try:
+                body = json.dumps(json.loads(base64.b64decode(header))).encode()
+            except (ValueError, binascii.Error):
+                logger.warning("could not decode PAYMENT-REQUIRED header; leaving 402 body as-is")
+        headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+        headers["WWW-Authenticate"] = "Payment"
+        return Response(
+            content=body,
+            status_code=402,
+            headers=headers,
+            media_type="application/json",
+        )
 
 
 app = FastAPI(
