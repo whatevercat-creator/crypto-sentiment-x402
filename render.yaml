@@ -3,7 +3,7 @@ services:
     name: crypto-sentiment-x402
     env: docker
     plan: starter
-    autoDeployTrigger: commit
+    autoDeployTrigger: off
     envVars:
       - key: PAY_TO_ADDRESS
         sync: false
