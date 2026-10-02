@@ -44,6 +44,9 @@ stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 DB_PATH = os.environ.get("BILLING_DB_PATH", "billing.db")
+# x402 pay-per-call price, e.g. "$0.01". app/main.py charges this; the
+# pricing endpoint and home page quote it.
+X402_PRICE_USD = os.environ.get("X402_PRICE_USD", "$0.01")
 
 TIERS = {
     "free": {
@@ -120,6 +123,28 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _plan_includes(cfg: dict) -> str:
+    """One line describing what a tier grants, built from the tier config
+    itself so it can't drift from what the code actually enforces."""
+    parts = [f"{cfg['limit']:,} sentiment calls/month on /v1/sentiment"]
+    if cfg["alert_limit"]:
+        parts.append(f"up to {cfg['alert_limit']} sentiment-shift alert watches")
+    else:
+        parts.append("no alerts")
+    if cfg["dataset_access"]:
+        parts.append("full historical dataset export (/dataset/export)")
+    else:
+        parts.append("no dataset export")
+    return ", ".join(parts)
+
+
+def dataset_plans() -> dict:
+    """The subscription plans (as /billing/pricing lists them) that unlock
+    /dataset/export."""
+    subs = pricing()["subscriptions"]
+    return {tier: subs[tier] for tier, cfg in TIERS.items() if cfg["dataset_access"]}
+
+
 class FreeSignup(BaseModel):
     email: str
 
@@ -129,7 +154,7 @@ def pricing():
     return {
         "pay_per_call": {
             "protocol": "x402",
-            "price_usd": 0.01,
+            "price_usd": float(X402_PRICE_USD.lstrip("$")),
             "endpoint": "GET /sentiment/{symbol}",
             "note": "No signup. Agents pay per call in USDC on Base.",
         },
@@ -138,6 +163,7 @@ def pricing():
                 "label": cfg["label"],
                 "price_usd_per_month": cfg["price_usd"],
                 "calls_per_month": cfg["limit"],
+                "includes": _plan_includes(cfg),
                 "endpoint": "GET /v1/sentiment/{symbol} (X-API-Key header)",
             }
             for tier, cfg in TIERS.items()
@@ -146,6 +172,7 @@ def pricing():
             "free": "POST /billing/signup-free {\"email\": \"...\"}",
             "starter": "POST /billing/checkout/starter",
             "pro": "POST /billing/checkout/pro",
+            "data": "POST /billing/checkout/data",
         },
     }
 

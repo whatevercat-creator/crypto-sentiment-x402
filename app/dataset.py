@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 
-from app.billing import _db, TIERS, get_key_info
+from app.billing import _db, TIERS, dataset_plans, get_key_info
 from app.coins import COIN_NAMES
 from app.sentiment_service import compute_sentiment_payload
 
@@ -147,6 +147,18 @@ def dataset_info():
         "note": "One row per symbol per calendar day, collected going forward "
         "from first_snapshot_date -- there is no backfilled history before that.",
         "get_access": "POST /billing/checkout/data",
+        # Same plan entries /billing/pricing returns, filtered to the
+        # tiers that unlock /dataset/export.
+        "unlocked_by": [
+            {
+                "plan": tier,
+                "label": plan["label"],
+                "price_usd_per_month": plan["price_usd_per_month"],
+                "includes": plan["includes"],
+                "checkout": f"POST /billing/checkout/{tier}",
+            }
+            for tier, plan in dataset_plans().items()
+        ],
     }
 
 

@@ -30,8 +30,8 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
 
-from fastapi import FastAPI, HTTPException, Header
-from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from cdp.x402 import create_facilitator_config
@@ -47,18 +47,27 @@ from x402.extensions.bazaar import (
     bazaar_resource_server_extension,
 )
 
-from app.billing import router as billing_router, init_db, verify_and_charge_api_key
+from app.billing import (
+    router as billing_router,
+    init_db,
+    verify_and_charge_api_key,
+    pricing as billing_pricing,
+    TIERS,
+    X402_PRICE_USD,
+)
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
+from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router
 from app.integrations import router as integrations_router
 from app.sentiment_service import compute_sentiment_payload
+from app.sources.news import NEWS_OUTLETS
 from app.sweep import sweep_loop
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
 NETWORK_MODE = os.environ.get("X402_NETWORK", "testnet")
-PRICE_USD = os.environ.get("X402_PRICE_USD", "$0.01")
+PRICE_USD = X402_PRICE_USD
 PUBLIC_BASE_URL = os.environ.get(
     "APP_BASE_URL", "https://crypto-sentiment-x402.onrender.com"
 ).rstrip("/")
@@ -74,6 +83,17 @@ if not os.environ.get("CDP_API_KEY_ID") or not os.environ.get("CDP_API_KEY_SECRE
         "CDP_API_KEY_ID and CDP_API_KEY_SECRET env vars are required. "
         "Get a free API key at https://portal.cdp.coinbase.com"
     )
+
+# Example /sentiment response, shared by the Bazaar discovery metadata and
+# the HTML home page.
+EXAMPLE_RESPONSE = {
+    "symbol": "BTC",
+    "name": "Bitcoin",
+    "overall_sentiment": {
+        "label": "bullish",
+        "average_compound": 0.21,
+    },
+}
 
 CAIP2_NETWORK = "eip155:8453" if NETWORK_MODE == "mainnet" else "eip155:84532"
 
@@ -108,14 +128,7 @@ routes = {
                     "required": ["symbol"],
                 },
                 output=OutputConfig(
-                    example={
-                        "symbol": "BTC",
-                        "name": "Bitcoin",
-                        "overall_sentiment": {
-                            "label": "bullish",
-                            "average_compound": 0.21,
-                        },
-                    },
+                    example=EXAMPLE_RESPONSE,
                     schema={
                         "properties": {
                             "symbol": {"type": "string"},
@@ -240,8 +253,27 @@ async def _shutdown():
             task.cancel()
 
 
+# JSON index for agents/directories; browsers (Accept: text/html) get the
+# human-readable page from app/home.py instead. No docstring on purpose: it
+# would show up in /openapi.json, which should keep describing only the JSON.
 @app.get("/", openapi_extra={"security": []})
-async def root():
+async def root(request: Request):
+    if "text/html" in request.headers.get("accept", "").lower():
+        html = render_home(
+            price_usd=PRICE_USD,
+            network_mode=NETWORK_MODE,
+            base_url=PUBLIC_BASE_URL,
+            outlets=list(NEWS_OUTLETS),
+            pricing=billing_pricing(),
+            alert_limits={cfg["label"]: cfg["alert_limit"] for cfg in TIERS.values()},
+            example_response=EXAMPLE_RESPONSE,
+            validation=_load_validation(),
+        )
+        return HTMLResponse(html, headers={"Vary": "Accept"})
+    return JSONResponse(_root_index(), headers={"Vary": "Accept"})
+
+
+def _root_index() -> dict:
     return {
         "name": "Crypto Sentiment API",
         "protocol": "x402",
@@ -262,15 +294,19 @@ async def root():
 _VALIDATION_PATH = os.path.join(os.path.dirname(__file__), "validation.json")
 
 
-@app.get("/validation", openapi_extra={"security": []})
-async def validation():
-    """Lead/lag of the sentiment score vs price. Free. Updated by
-    scripts/leadlag.py --out app/validation.json, then committed."""
+def _load_validation() -> dict:
     try:
         with open(_VALIDATION_PATH) as f:
             return json.load(f)
     except (OSError, ValueError):
         return {"status": "measuring", "detail": "validation results not available yet"}
+
+
+@app.get("/validation", openapi_extra={"security": []})
+async def validation():
+    """Lead/lag of the sentiment score vs price. Free. Updated by
+    scripts/leadlag.py --out app/validation.json, then committed."""
+    return _load_validation()
 
 
 @app.get("/health", openapi_extra={"security": []})

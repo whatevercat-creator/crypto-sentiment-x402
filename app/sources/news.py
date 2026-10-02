@@ -6,18 +6,19 @@ import httpx
 import xml.etree.ElementTree as ET
 from typing import List
 
-RSS_FEEDS = [
-    "https://www.coindesk.com/arc/outboundfeeds/rss/",
-    "https://cointelegraph.com/rss",
-    "https://decrypt.co/feed",
-    "https://bitcoinmagazine.com/.rss/full/",
-    "https://www.theblock.co/rss.xml",
-    "https://cryptoslate.com/feed/",
-    "https://www.newsbtc.com/feed/",
-    "https://cryptopotato.com/feed/",
-    "https://thedefiant.io/feed",
-    "https://www.dlnews.com/arc/outboundfeeds/rss/",
-]
+NEWS_OUTLETS = {
+    "CoinDesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+    "Cointelegraph": "https://cointelegraph.com/rss",
+    "Decrypt": "https://decrypt.co/feed",
+    "Bitcoin Magazine": "https://bitcoinmagazine.com/.rss/full/",
+    "The Block": "https://www.theblock.co/rss.xml",
+    "CryptoSlate": "https://cryptoslate.com/feed/",
+    "NewsBTC": "https://www.newsbtc.com/feed/",
+    "CryptoPotato": "https://cryptopotato.com/feed/",
+    "The Defiant": "https://thedefiant.io/feed",
+    "DL News": "https://www.dlnews.com/arc/outboundfeeds/rss/",
+}
+RSS_FEEDS = list(NEWS_OUTLETS.values())
 
 
 async def fetch_news_headlines(symbol: str, name: str, limit_per_feed: int = 30) -> List[str]:
