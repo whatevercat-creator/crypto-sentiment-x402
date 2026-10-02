@@ -26,6 +26,9 @@ import base64
 import binascii
 import asyncio
 import logging
+from datetime import datetime, timezone
+from typing import Optional
+from urllib.parse import unquote
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
@@ -197,6 +200,54 @@ app = FastAPI(
     title="Crypto Sentiment API (x402)",
     contact={"email": "hi@forgealone.com"},
 )
+def _decode_b64_json(header: Optional[str]) -> Optional[dict]:
+    if not header:
+        return None
+    try:
+        data = json.loads(base64.b64decode(header))
+    except (ValueError, binascii.Error):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _payer_from_signature(header: Optional[str]) -> Optional[str]:
+    """Best-effort payer wallet from the x402 v2 PAYMENT-SIGNATURE header
+    (payload.authorization.from for the exact EVM scheme). Only the address
+    is read; the signature itself is never logged."""
+    data = _decode_b64_json(header) or {}
+    payer = ((data.get("payload") or {}).get("authorization") or {}).get("from")
+    return payer if isinstance(payer, str) else None
+
+
+def _settlement_tx(header: Optional[str]) -> Optional[str]:
+    """Transaction hash from the PAYMENT-RESPONSE header PaymentMiddlewareASGI
+    sets after a successful settlement, if it's there."""
+    tx = (_decode_b64_json(header) or {}).get("transaction")
+    return tx if isinstance(tx, str) and tx else None
+
+
+class PaidCallLogMiddleware(BaseHTTPMiddleware):
+    """One JSON log line per successful paid /sentiment call. Wraps
+    PaymentMiddlewareASGI because settlement happens there after the route
+    handler returns: a 2xx from /sentiment/* means the payment verified and
+    settled (a failed settlement comes back as a 402). grep the logs for
+    "sentiment_paid_call" to count paid usage."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/sentiment/") and 200 <= response.status_code < 300:
+            logger.info(json.dumps({
+                "event": "sentiment_paid_call",
+                "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "symbol": unquote(path[len("/sentiment/"):]).upper(),
+                "price": PRICE_USD,
+                "payer": _payer_from_signature(request.headers.get("payment-signature")),
+                "transaction": _settlement_tx(response.headers.get("payment-response")),
+            }))
+        return response
+
+
 X_GUIDANCE = (
      "Use this API to get a current news-based sentiment reading for one crypto "
      "ticker (e.g. BTC, ETH, SOL). Call GET /sentiment/{symbol} with the ticker "
@@ -231,6 +282,7 @@ app.add_middleware(
        ),
    )
 app.add_middleware(Mirror402ChallengeMiddleware)
+app.add_middleware(PaidCallLogMiddleware)
 app.include_router(billing_router)
 app.include_router(alerts_router)
 app.include_router(dataset_router)
