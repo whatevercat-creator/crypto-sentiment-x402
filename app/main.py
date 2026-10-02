@@ -266,6 +266,9 @@ async def _shutdown():
 # JSON index for agents/directories; browsers (Accept: text/html) get the
 # human-readable page from app/home.py instead. No docstring on purpose: it
 # would show up in /openapi.json, which should keep describing only the JSON.
+# HEAD too, for uptime monitors; kept out of the schema so /openapi.json
+# is unchanged.
+@app.head("/", include_in_schema=False)
 @app.get("/", openapi_extra={"security": []})
 async def root(request: Request):
     if "text/html" in request.headers.get("accept", "").lower():
@@ -320,6 +323,7 @@ async def validation():
     return _load_validation()
 
 
+@app.head("/health", include_in_schema=False)
 @app.get("/health", openapi_extra={"security": []})
 async def health():
     return {"status": "ok"}

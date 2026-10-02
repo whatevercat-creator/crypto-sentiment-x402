@@ -229,7 +229,11 @@ def checkout_success(session_id: str):
 
     # Newer stripe-python (v9+) resource objects aren't dict-like anymore --
     # .to_dict() converts recursively so the .get() chains below still work.
-    session = stripe.checkout.Session.retrieve(session_id).to_dict()
+    try:
+        session = stripe.checkout.Session.retrieve(session_id).to_dict()
+    except stripe.InvalidRequestError:
+        # Unknown or malformed session_id -- the caller's fault, not ours.
+        raise HTTPException(400, "Invalid or unknown checkout session_id.")
     customer_id = session.get("customer")
 
     # The webhook that provisions the key can land a moment after the

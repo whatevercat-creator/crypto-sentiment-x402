@@ -135,3 +135,25 @@ def test_pro_shown_as_including_dataset_export(client):
     assert "no dataset export" in subs["starter"]["includes"]
     html = client.get("/", headers={"Accept": BROWSER_ACCEPT}).text
     assert "Included with Pro and Data Access" in html
+
+
+@pytest.mark.parametrize("path", ["/", "/health"])
+def test_head_returns_200(client, path):
+    r = client.head(path)
+    assert r.status_code == 200
+    assert r.content == b""
+
+
+def test_billing_success_unknown_session_is_400(client, monkeypatch):
+    from app import billing
+
+    def missing(session_id):
+        raise billing.stripe.InvalidRequestError(
+            f"No such checkout.session: '{session_id}'", "session"
+        )
+
+    monkeypatch.setattr(billing.stripe, "api_key", "sk_test_dummy")
+    monkeypatch.setattr(billing.stripe.checkout.Session, "retrieve", missing)
+    r = client.get("/billing/success", params={"session_id": "cs_test_nope"})
+    assert r.status_code == 400
+    assert r.json() == {"detail": "Invalid or unknown checkout session_id."}
