@@ -118,10 +118,20 @@ def test_dataset_info_has_price_and_plan(client):
     subs = client.get("/billing/pricing").json()["subscriptions"]
     assert info["unlocked_by"] == [
         {
-            "plan": "data",
-            "label": subs["data"]["label"],
-            "price_usd_per_month": subs["data"]["price_usd_per_month"],
-            "includes": subs["data"]["includes"],
-            "checkout": "POST /billing/checkout/data",
+            "plan": tier,
+            "label": subs[tier]["label"],
+            "price_usd_per_month": subs[tier]["price_usd_per_month"],
+            "includes": subs[tier]["includes"],
+            "checkout": f"POST /billing/checkout/{tier}",
         }
+        for tier in ("pro", "data")
     ]
+    assert info["get_access"] == "POST /billing/checkout/pro or POST /billing/checkout/data"
+
+
+def test_pro_shown_as_including_dataset_export(client):
+    subs = client.get("/billing/pricing").json()["subscriptions"]
+    assert "dataset export (/dataset/export)" in subs["pro"]["includes"]
+    assert "no dataset export" in subs["starter"]["includes"]
+    html = client.get("/", headers={"Accept": BROWSER_ACCEPT}).text
+    assert "Included with Pro and Data Access" in html

@@ -11,7 +11,11 @@ buyers who'd rather pay a predictable monthly price than hold USDC:
 |---|---|---|---|
 | Free | $0 | 100 | `POST /billing/signup-free {"email": "..."}` |
 | Starter | $15/mo | 3,000 (~$0.005/call) | `POST /billing/checkout/starter` |
-| Pro | $59/mo | 15,000 (~$0.004/call) | `POST /billing/checkout/pro` |
+| Pro | $59/mo | 15,000 (~$0.004/call), plus dataset export | `POST /billing/checkout/pro` |
+
+Pro also includes the historical dataset export (`GET /dataset/export`),
+which is otherwise sold on its own as the Data Access tier -- see
+[DATASET.md](DATASET.md).
 
 Both paid tiers are priced below the $0.01/call x402 rate as the incentive
 to commit to a subscription. Adjust `TIERS` in `app/billing.py` if you want

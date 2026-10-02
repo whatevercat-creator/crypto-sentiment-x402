@@ -94,6 +94,7 @@ def render_home(
     outlets: list,
     pricing: dict,
     alert_limits: dict,
+    dataset_plans: list,
     example_response: dict,
     validation: dict,
 ) -> str:
@@ -161,7 +162,7 @@ with an <code>X-API-Key</code> header:</p>
 <li><a href="{GITHUB_URL}/blob/main/ALERTS.md">Alerts</a>: get a webhook, Discord or Telegram
 message when a coin's sentiment shifts. Included with {alert_tiers}.</li>
 <li><a href="/dataset/info">Daily dataset</a>: one sentiment reading per tracked coin per day,
-exportable as CSV or JSON.</li>
+exportable as CSV or JSON. Included with {escape(" and ".join(dataset_plans))}.</li>
 <li><a href="{RAPIDAPI_URL}">RapidAPI</a>: subscribe and pay through RapidAPI instead.</li>
 <li><a href="{GITHUB_URL}/blob/main/INTEGRATIONS.md">TradingView alert relay</a>: forward
 TradingView alerts enriched with current sentiment to your alert channels.</li>

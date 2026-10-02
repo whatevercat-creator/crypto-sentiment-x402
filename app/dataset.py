@@ -1,6 +1,6 @@
 """
 Historical sentiment dataset, sold as a growing export via the existing
-Stripe billing (see app/billing.py TIERS["data"]).
+Stripe billing (see TIERS[*]["dataset_access"] in app/billing.py).
 
 There is no backfilled history -- this only has data from whenever the
 background snapshot loop below first ran. That's disclosed to buyers
@@ -9,8 +9,8 @@ background snapshot loop below first ran. That's disclosed to buyers
 A background asyncio loop (started in app/main.py's startup event, same
 pattern as app/alerts.py) takes one sentiment reading per tracked symbol
 per calendar day and stores it. GET /dataset/export lets a customer with
-dataset access (the "data" tier, or any future tier with
-TIERS[tier]["dataset_access"] = True) download everything collected so
+dataset access (any tier with TIERS[tier]["dataset_access"] = True --
+currently Pro and Data Access) download everything collected so
 far as CSV or JSON.
 
 Env vars (see .env.example):
@@ -121,13 +121,18 @@ async def snapshot_loop() -> None:
         await asyncio.sleep(SNAPSHOT_INTERVAL_SECONDS)
 
 
+def _access_checkouts() -> str:
+    """e.g. "POST /billing/checkout/pro or POST /billing/checkout/data"."""
+    return " or ".join(f"POST /billing/checkout/{tier}" for tier in dataset_plans())
+
+
 def _require_dataset_access(api_key: str) -> dict:
     info = get_key_info(api_key)
     if not TIERS.get(info["tier"], {}).get("dataset_access"):
         raise HTTPException(
             403,
-            "Your tier doesn't include dataset access. Get it with "
-            "POST /billing/checkout/data.",
+            f"Your tier doesn't include dataset access. Get it with "
+            f"{_access_checkouts()}.",
         )
     return info
 
@@ -146,7 +151,7 @@ def dataset_info():
         "total_rows": row["total_rows"] or 0,
         "note": "One row per symbol per calendar day, collected going forward "
         "from first_snapshot_date -- there is no backfilled history before that.",
-        "get_access": "POST /billing/checkout/data",
+        "get_access": _access_checkouts(),
         # Same plan entries /billing/pricing returns, filtered to the
         # tiers that unlock /dataset/export.
         "unlocked_by": [

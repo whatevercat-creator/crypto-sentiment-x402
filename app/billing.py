@@ -11,6 +11,8 @@ Tiers (see TIERS below for the source of truth):
   free     100 calls/mo,   $0    -- POST /billing/signup-free
   starter  3,000 calls/mo, $15/mo -- POST /billing/checkout/starter
   pro      15,000 calls/mo,$59/mo -- POST /billing/checkout/pro
+  data     3,000 calls/mo, $29/mo -- POST /billing/checkout/data
+  (dataset export: every tier with dataset_access = True, i.e. pro + data)
 
 Env vars (see .env.example / BILLING.md):
   STRIPE_SECRET_KEY        - from your Stripe dashboard (test or live)
@@ -71,7 +73,7 @@ TIERS = {
         "price_usd": 59,
         "price_id_env": "STRIPE_PRICE_ID_PRO",
         "alert_limit": 15,
-        "dataset_access": False,
+        "dataset_access": True,
     },
     "data": {
         "label": "Data Access",

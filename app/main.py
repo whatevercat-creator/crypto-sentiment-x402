@@ -276,6 +276,7 @@ async def root(request: Request):
             outlets=list(NEWS_OUTLETS),
             pricing=billing_pricing(),
             alert_limits={cfg["label"]: cfg["alert_limit"] for cfg in TIERS.values()},
+            dataset_plans=[cfg["label"] for cfg in TIERS.values() if cfg["dataset_access"]],
             example_response=EXAMPLE_RESPONSE,
             validation=_load_validation(),
         )

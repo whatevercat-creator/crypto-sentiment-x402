@@ -26,10 +26,12 @@ one running instance.
 
 ## Pricing
 
-Sold as its own tier, `TIERS["data"]` in `app/billing.py`: $29/mo,
-bundled with a modest 3,000 `/v1/sentiment` calls/month on top (so a data
-customer isn't locked out of the live endpoint too). Change the price or
-call limit there the same way you would Starter/Pro.
+Included with Pro ($59/mo), and sold on its own as `TIERS["data"]` in
+`app/billing.py`: $29/mo, bundled with a modest 3,000 `/v1/sentiment`
+calls/month on top (so a data customer isn't locked out of the live
+endpoint too). Change the price or call limit there the same way you would
+Starter/Pro. Access is decided only by each tier's `dataset_access` flag,
+so flipping that flag is all it takes to add or remove it from a tier.
 
 ## Setup
 
@@ -49,8 +51,8 @@ endpoint -- nothing new to configure there beyond one more product/price:
   snapshot dates, and total row count. Good for a pricing/landing page to
   link to so prospective buyers see real numbers before paying.
 - `GET /dataset/export` -- requires `X-API-Key` from a key on a
-  `dataset_access` tier (currently just `data`, but Pro could be upgraded
-  to include it by flipping one flag in `TIERS`). Query params:
+  `dataset_access` tier (currently `pro` and `data`). Starter and Free
+  keys get a 403. Query params:
   `format=csv|json` (default csv), `symbol=BTC` (optional filter),
   `since=YYYY-MM-DD` (optional filter). Returns everything matching, no
   pagination yet -- fine at current scale, revisit if rows get large.

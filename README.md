@@ -117,8 +117,8 @@ Starter/Pro subscription tiers -- see [ALERTS.md](ALERTS.md).
 
 Sells access to the *history* of sentiment readings, not just the current
 one -- a background job takes one snapshot per symbol per day, and
-subscribers on the "Data Access" tier can export everything collected so
-far as CSV or JSON via `GET /dataset/export`. See [DATASET.md](DATASET.md)
+subscribers on the Pro or "Data Access" tier can export everything
+collected so far as CSV or JSON via `GET /dataset/export`. See [DATASET.md](DATASET.md)
 (there's no backfilled history -- it only has data from whenever you turn
 the snapshot loop on).
 
