@@ -37,10 +37,15 @@ import secrets
 import sqlite3
 import time
 from datetime import datetime, timezone
+from urllib.parse import parse_qs
 
 import stripe
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
+
+from app.home import render_free_key_page, render_message_page
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
@@ -85,7 +90,34 @@ TIERS = {
     },
 }
 
-router = APIRouter(prefix="/billing", tags=["billing"])
+
+def _is_form_post(request: Request) -> bool:
+    """A plain HTML <form method="post"> (the home page's Subscribe / Get
+    free key buttons) sends application/x-www-form-urlencoded. API clients
+    send JSON or no body at all."""
+    ctype = request.headers.get("content-type", "")
+    return ctype.split(";")[0].strip().lower() == "application/x-www-form-urlencoded"
+
+
+class _FormAwareRoute(APIRoute):
+    """Sends HTML form posts to the path's entry in _FORM_HANDLERS, which
+    answers with a page or a redirect. Every other request goes through
+    FastAPI's normal handler untouched, so API clients keep exactly the
+    JSON (and 422 validation errors) they always got."""
+
+    def get_route_handler(self):
+        default_handler = super().get_route_handler()
+
+        async def handler(request: Request):
+            form_handler = _FORM_HANDLERS.get(self.path_format)
+            if form_handler is not None and _is_form_post(request):
+                return await form_handler(request)
+            return await default_handler(request)
+
+        return handler
+
+
+router = APIRouter(prefix="/billing", tags=["billing"], route_class=_FormAwareRoute)
 
 
 def _db() -> sqlite3.Connection:
@@ -179,8 +211,7 @@ def pricing():
     }
 
 
-@router.post("/signup-free", openapi_extra={"security": []})
-def signup_free(body: FreeSignup):
+def _issue_free_key(email: str) -> dict:
     key = _new_key()
     now = _now_iso()
     with _db() as conn:
@@ -188,7 +219,7 @@ def signup_free(body: FreeSignup):
             "INSERT INTO api_keys "
             "(api_key, email, tier, status, period_calls_used, period_start, created_at) "
             "VALUES (?, ?, 'free', 'active', 0, ?, ?)",
-            (key, body.email, now, now),
+            (key, email, now, now),
         )
     return {
         "api_key": key,
@@ -199,8 +230,12 @@ def signup_free(body: FreeSignup):
     }
 
 
-@router.post("/checkout/{tier}", openapi_extra={"security": []})
-def create_checkout(tier: str):
+@router.post("/signup-free", openapi_extra={"security": []})
+def signup_free(body: FreeSignup):
+    return _issue_free_key(body.email)
+
+
+def _checkout_url(tier: str) -> str:
     if tier not in ("starter", "pro", "data"):
         raise HTTPException(400, "tier must be 'starter', 'pro', or 'data' (use /billing/signup-free for the free tier)")
 
@@ -219,7 +254,53 @@ def create_checkout(tier: str):
         cancel_url=f"{APP_BASE_URL}/billing/cancel",
         metadata={"tier": tier},
     )
-    return {"checkout_url": session.url}
+    return session.url
+
+
+@router.post("/checkout/{tier}", openapi_extra={"security": []})
+def create_checkout(tier: str):
+    return {"checkout_url": _checkout_url(tier)}
+
+
+async def _form_fields(request: Request) -> dict:
+    body = (await request.body()).decode("utf-8", errors="replace")
+    return {k: v[0] for k, v in parse_qs(body).items()}
+
+
+async def _signup_free_form(request: Request):
+    email = (await _form_fields(request)).get("email", "").strip()
+    if not email or "@" not in email:
+        return HTMLResponse(
+            render_message_page("Enter your email", "Go back and enter an email address to get a free key."),
+            status_code=400,
+        )
+    result = _issue_free_key(email)
+    return HTMLResponse(
+        render_free_key_page(
+            api_key=result["api_key"],
+            calls_per_month=result["calls_per_month"],
+            base_url=APP_BASE_URL,
+        ),
+        # The page shows a secret that's never shown again; keep it out of caches.
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _checkout_form(request: Request):
+    try:
+        url = _checkout_url(request.path_params["tier"])
+    except HTTPException as e:
+        return HTMLResponse(
+            render_message_page("Checkout isn't available", str(e.detail)),
+            status_code=e.status_code,
+        )
+    return RedirectResponse(url, status_code=303)
+
+
+_FORM_HANDLERS = {
+    "/billing/signup-free": _signup_free_form,
+    "/billing/checkout/{tier}": _checkout_form,
+}
 
 
 @router.get("/success", openapi_extra={"security": []})

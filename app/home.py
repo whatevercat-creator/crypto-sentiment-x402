@@ -39,11 +39,21 @@ li{margin:4px 0}
 .price{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
 .price strong{font-size:1.6rem}
 .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
-.plan{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px}
+.plan{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px;
+display:flex;flex-direction:column}
 .plan h3{margin:0 0 4px;font-size:1rem}
 .plan .amt{font-size:1.3rem;font-weight:700}
 .plan .small{font-size:.85rem;color:var(--muted)}
 .plan code{overflow-wrap:anywhere;font-size:.8rem}
+.plan form{margin:auto 0 0;padding-top:8px}
+.plan input{width:100%;margin:0 0 8px;padding:8px 10px;font:inherit;font-size:.9rem;color:var(--text);
+background:var(--code);border:1px solid var(--border);border-radius:6px}
+button{width:100%;padding:9px 12px;font:inherit;font-weight:600;color:#0d1117;background:var(--accent);
+border:0;border-radius:6px;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+.dev{font-size:.75rem;color:var(--muted);margin:8px 0 0}
+.key{font-size:1rem;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px;
+overflow-wrap:anywhere;margin:0 0 12px}
 pre{background:var(--code);border:1px solid var(--border);border-radius:8px;padding:12px;
 overflow-x:auto;font-size:.85rem;line-height:1.45;margin:0 0 12px}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
@@ -86,6 +96,59 @@ def _validation_html(validation: dict) -> str:
     )
 
 
+def _plan_form(tier: str) -> str:
+    """Plain HTML forms, no JavaScript: app/billing.py answers form posts
+    with a page (free key) or a redirect to Stripe Checkout (paid plans)."""
+    if tier == "free":
+        return (
+            '<form method="post" action="/billing/signup-free">'
+            '<input type="email" name="email" required autocomplete="email" '
+            'placeholder="you@example.com" aria-label="Email">'
+            '<button type="submit">Get free key</button></form>'
+        )
+    return (
+        f'<form method="post" action="/billing/checkout/{escape(tier)}">'
+        '<button type="submit">Subscribe</button></form>'
+    )
+
+
+def _page(title: str, body: str) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{escape(title)} - Crypto Sentiment API</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<main>
+<h1>{escape(title)}</h1>
+{body}
+<p><a href="/">&larr; Back to Crypto Sentiment API</a></p>
+</main>
+</body>
+</html>
+"""
+
+
+def render_message_page(title: str, message: str) -> str:
+    return _page(title, f"<p>{escape(message)}</p>")
+
+
+def render_free_key_page(*, api_key: str, calls_per_month: int, base_url: str) -> str:
+    curl = escape(f'curl -H "X-API-Key: {api_key}" {base_url}/v1/sentiment/BTC')
+    return _page(
+        "Your free API key",
+        f'<p class="key"><code>{escape(api_key)}</code></p>'
+        "<p><strong>Save this key now.</strong> It won't be shown again.</p>"
+        f"<p>It gives you {calls_per_month:,} calls a month on "
+        "<code>GET /v1/sentiment/{symbol}</code>. Send it in the <code>X-API-Key</code> header:</p>"
+        f"<pre><code>{curl}</code></pre>",
+    )
+
+
 def render_home(
     *,
     price_usd: str,
@@ -106,7 +169,8 @@ def render_home(
         f"<h3>{escape(p['label'])}</h3>"
         f'<div class="amt">${p["price_usd_per_month"]}<span class="small">/mo</span></div>'
         f"<p class=\"small\">{escape(p['includes'])}</p>"
-        f'<div class="small"><code>{escape(pricing["signup"].get(tier, ""))}</code></div>'
+        f"{_plan_form(tier)}"
+        f'<p class="dev">For developers: <code>{escape(pricing["signup"].get(tier, ""))}</code></p>'
         "</div>"
         for tier, p in pricing["subscriptions"].items()
     )
