@@ -102,6 +102,41 @@ server = x402ResourceServer(facilitator)
 server.register(CAIP2_NETWORK, ExactEvmServerScheme())
 server.register_extension(bazaar_resource_server_extension)
 
+SENTIMENT_DISCOVERY = declare_discovery_extension(
+    # symbol is a PATH param (/sentiment/BTC), not a query param.
+    # No query params at all.
+    path_params_schema={
+        "properties": {
+            "symbol": {
+                "type": "string",
+                "description": "Uppercase ticker symbol in the URL path, e.g. BTC in /sentiment/BTC",
+            },
+        },
+        "required": ["symbol"],
+    },
+    output=OutputConfig(
+        example=EXAMPLE_RESPONSE,
+        schema={
+            "properties": {
+                "symbol": {"type": "string"},
+                "name": {"type": "string"},
+                "overall_sentiment": {"type": "object"},
+            },
+            "required": ["symbol", "overall_sentiment"],
+        },
+    ),
+)
+# declare_discovery_extension() leaves out info.input.method (the library
+# fills it in per request), so the x402 middleware's startup check rejects
+# the extension as declared with "input: 'method' is a required property".
+# Declare the method and an example path param up front so the extension is
+# valid on its own. Per request the library still overwrites both with the
+# real method and symbol, so the 402 response is unchanged.
+SENTIMENT_DISCOVERY["bazaar"]["info"]["input"].update(
+    method="GET",
+    pathParams={"symbol": EXAMPLE_RESPONSE["symbol"]},
+)
+
 routes = {
     "GET /sentiment/:symbol": RouteConfig(
         accepts=[
@@ -114,32 +149,7 @@ routes = {
         ],
         description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL News) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
         mime_type="application/json",
-        extensions={
-            **declare_discovery_extension(
-                # symbol is a PATH param (/sentiment/BTC), not a query param.
-                # No query params at all -- the method comes from the route key.
-                path_params_schema={
-                    "properties": {
-                        "symbol": {
-                            "type": "string",
-                            "description": "Uppercase ticker symbol in the URL path, e.g. BTC in /sentiment/BTC",
-                        },
-                    },
-                    "required": ["symbol"],
-                },
-                output=OutputConfig(
-                    example=EXAMPLE_RESPONSE,
-                    schema={
-                        "properties": {
-                            "symbol": {"type": "string"},
-                            "name": {"type": "string"},
-                            "overall_sentiment": {"type": "object"},
-                        },
-                        "required": ["symbol", "overall_sentiment"],
-                    },
-                ),
-            )
-        },
+        extensions=SENTIMENT_DISCOVERY,
     ),
     # NOTE: /v1/sentiment/* is intentionally NOT listed here -- it's the
     # Stripe-subscription lane, gated by verify_and_charge_api_key() below
