@@ -37,3 +37,14 @@ def test_402_extension_carries_request_symbol(client):  # noqa: F811
     assert ext["info"]["input"]["method"] == "GET"
     assert ext["info"]["input"]["pathParams"] == {"symbol": "ETH"}
     assert ext["routeTemplate"] == "/sentiment/:symbol"
+
+
+def test_402_mirrors_challenge_without_www_authenticate(client):  # noqa: F811
+    r = client.get("/sentiment/BTC")
+    assert r.status_code == 402
+    decoded = json.loads(base64.b64decode(r.headers["payment-required"]))
+    assert r.json() == decoded
+    assert r.json()["accepts"], "body must carry accepts[]"
+    # A bare "WWW-Authenticate: Payment" is an incomplete MPP challenge and
+    # fails x402scan's audit, so 402s don't send one.
+    assert "www-authenticate" not in r.headers

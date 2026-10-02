@@ -156,15 +156,16 @@ routes = {
     # instead of the x402 payment middleware.
 }
 
-class AddWWWAuthenticateMiddleware(BaseHTTPMiddleware):
-    """Adds a WWW-Authenticate: Payment header to 402 responses.
+class Mirror402ChallengeMiddleware(BaseHTTPMiddleware):
+    """Mirrors the PAYMENT-REQUIRED challenge into the 402 body.
 
-    Not part of the x402 v2 header set (PAYMENT-REQUIRED/-SIGNATURE/-RESPONSE
-    already carry everything an x402-aware client needs) -- this is purely
-    so a generic HTTP client that only understands RFC 9110 can tell a 402
-    means "payment needed" without knowing about x402 at all. Registered
-    after PaymentMiddlewareASGI so it wraps around it and can see/amend the
-    402 response PaymentMiddlewareASGI returns.
+    Registered after PaymentMiddlewareASGI so it wraps around it and can
+    see/amend the 402 response PaymentMiddlewareASGI returns.
+
+    No WWW-Authenticate header: "Payment" there is the MPP auth scheme, which
+    needs a server-bound challenge and Authorization: Payment credentials we
+    don't accept, and a bare one fails discovery audits (x402scan). x402
+    itself doesn't use WWW-Authenticate, and HTTP only requires it on 401.
     """
 
     async def dispatch(self, request, call_next):
@@ -184,7 +185,6 @@ class AddWWWAuthenticateMiddleware(BaseHTTPMiddleware):
             except (ValueError, binascii.Error):
                 logger.warning("could not decode PAYMENT-REQUIRED header; leaving 402 body as-is")
         headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
-        headers["WWW-Authenticate"] = "Payment"
         return Response(
             content=body,
             status_code=402,
@@ -230,7 +230,7 @@ app.add_middleware(
            testnet=(NETWORK_MODE != "mainnet"),
        ),
    )
-app.add_middleware(AddWWWAuthenticateMiddleware)
+app.add_middleware(Mirror402ChallengeMiddleware)
 app.include_router(billing_router)
 app.include_router(alerts_router)
 app.include_router(dataset_router)
