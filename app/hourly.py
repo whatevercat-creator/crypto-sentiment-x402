@@ -9,7 +9,10 @@ A background asyncio loop (started in app/main.py's startup event) wakes at
 the top of every UTC hour and stores one reading per symbol, stamped with the
 exact UTC time the reading finished. If a symbol already has a row for the
 current hour (e.g. after a mid-hour restart) it is skipped, and if the
-sources fail that hour is left as a gap rather than filled in.
+sources fail that hour is left as a gap rather than filled in. All symbols
+are scored from one fetch of the feeds per hour, and each row records the
+headline matcher that produced it (`matcher`; NULL for substring-era rows
+from before 2026-10-03).
 
 Note: the Fear & Greed Index only updates once a day, so fear_greed_value is
 constant within a day here -- only average_compound moves hourly.
@@ -27,7 +30,8 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from app.billing import _db
-from app.sentiment_service import compute_sentiment_payload
+from app.coins import MATCHER_VERSION
+from app.sentiment_service import compute_sentiment_payloads
 
 logger = logging.getLogger("app.hourly")
 
@@ -57,11 +61,14 @@ def init_hourly_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_hourly_symbol_time "
             "ON sentiment_hourly (symbol, observed_at)"
         )
+        # Which headline matcher produced the reading. NULL = a row from
+        # before 2026-10-03, scored with substring matching.
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sentiment_hourly)")}
+        if "matcher" not in columns:
+            conn.execute("ALTER TABLE sentiment_hourly ADD COLUMN matcher TEXT")
 
 
-async def _log_symbol_if_needed(symbol: str) -> None:
-    now = datetime.now(timezone.utc)
-    hour_start = now.replace(minute=0, second=0, microsecond=0)
+def _already_logged(symbol: str, hour_start: datetime) -> bool:
     hour_end = hour_start + timedelta(hours=1)
     with _db() as conn:
         row = conn.execute(
@@ -69,36 +76,50 @@ async def _log_symbol_if_needed(symbol: str) -> None:
             "AND observed_at >= ? AND observed_at < ?",
             (symbol, hour_start.isoformat(), hour_end.isoformat()),
         ).fetchone()
-    if row:
-        logger.info("[hourly] %s: already logged for %s, skipping", symbol, hour_start.strftime("%Y-%m-%d %H:00Z"))
+    return row is not None
+
+
+async def log_hour(symbols: list) -> None:
+    """One reading per symbol for the current hour, all scored from a single
+    fetch of the feeds (compute_sentiment_payloads), so every symbol is
+    stamped with the same observed_at and adding symbols adds no requests."""
+    hour_start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    pending = []
+    for symbol in symbols:
+        if _already_logged(symbol, hour_start):
+            logger.info("[hourly] %s: already logged for %s, skipping", symbol, hour_start.strftime("%Y-%m-%d %H:00Z"))
+        else:
+            pending.append(symbol)
+    if not pending:
         return
 
     try:
-        payload = await compute_sentiment_payload(symbol)
+        payloads = await compute_sentiment_payloads(pending)
     except Exception:
-        logger.warning("[hourly] %s: sentiment fetch failed, skipping this hour", symbol, exc_info=True)
+        logger.warning("[hourly] %s: sentiment fetch failed, skipping this hour", ",".join(pending), exc_info=True)
         return
 
-    overall = payload["overall_sentiment"]
-    fng = payload.get("breakdown", {}).get("fear_greed_index") or {}
     observed_at = datetime.now(timezone.utc).isoformat()
-    compound = overall.get("average_compound")
-    sample_size = overall.get("sample_size")
-    fng_value = fng.get("value")
-    with _db() as conn:
-        conn.execute(
-            "INSERT INTO sentiment_hourly "
-            "(symbol, observed_at, average_compound, sample_size, fear_greed_value) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (symbol, observed_at, compound, sample_size, fng_value),
+    for symbol, payload in payloads.items():
+        overall = payload["overall_sentiment"]
+        fng = payload.get("breakdown", {}).get("fear_greed_index") or {}
+        compound = overall.get("average_compound")
+        sample_size = overall.get("sample_size")
+        fng_value = fng.get("value")
+        with _db() as conn:
+            conn.execute(
+                "INSERT INTO sentiment_hourly "
+                "(symbol, observed_at, average_compound, sample_size, fear_greed_value, matcher) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (symbol, observed_at, compound, sample_size, fng_value, MATCHER_VERSION),
+            )
+            total = conn.execute(
+                "SELECT COUNT(*) FROM sentiment_hourly WHERE symbol = ?", (symbol,)
+            ).fetchone()[0]
+        logger.info(
+            "[hourly] %s: inserted observed_at=%s compound=%s n=%s fng=%s (total rows for %s: %d)",
+            symbol, observed_at, compound, sample_size, fng_value, symbol, total,
         )
-        total = conn.execute(
-            "SELECT COUNT(*) FROM sentiment_hourly WHERE symbol = ?", (symbol,)
-        ).fetchone()[0]
-    logger.info(
-        "[hourly] %s: inserted observed_at=%s compound=%s n=%s fng=%s (total rows for %s: %d)",
-        symbol, observed_at, compound, sample_size, fng_value, symbol, total,
-    )
 
 
 def _next_hour_start() -> datetime:
@@ -130,8 +151,7 @@ async def hourly_loop() -> None:
     logger.info("[hourly] enabled: logging %s at the top of every UTC hour", ",".join(HOURLY_SYMBOLS))
     while True:
         await _sleep_until(_next_hour_start())
-        for symbol in HOURLY_SYMBOLS:
-            try:
-                await _log_symbol_if_needed(symbol)
-            except Exception:
-                logger.exception("[hourly] %s: unexpected error", symbol)
+        try:
+            await log_hour(HOURLY_SYMBOLS)
+        except Exception:
+            logger.exception("[hourly] unexpected error")

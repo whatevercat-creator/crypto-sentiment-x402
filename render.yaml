@@ -38,7 +38,7 @@ services:
       - key: HOURLY_ENABLED
         value: "1"
       - key: HOURLY_SYMBOLS
-        value: "BTC,ETH"
+        value: "BTC,ETH,XRP,SOL"
       - key: RAPIDAPI_PROXY_SECRET
         sync: false
       - key: SWEEP_TO_ADDRESS

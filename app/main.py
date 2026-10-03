@@ -526,6 +526,8 @@ async def transparency():
             "The price quoted in the x402 402 response is the full price -- "
             "no additional fees are added at settlement."
         ),
+        # Same entries as /validation, from app/validation.json.
+        "methodology_changes": _load_validation().get("methodology_changes", []),
     }
 
 

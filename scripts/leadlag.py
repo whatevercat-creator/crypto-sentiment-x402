@@ -24,6 +24,14 @@ Run on Render (Shell tab), where the DB lives:
     python scripts/leadlag.py                       # BTC, uses $BILLING_DB_PATH
     python scripts/leadlag.py --symbol ETH
     python scripts/leadlag.py --out app/validation.json   # writes page data
+    python scripts/leadlag.py --whole-word-only     # only readings scored by
+                                                    # the 2026-10-03 matcher
+    python scripts/leadlag.py --since 2026-10-04T00:00:00Z
+
+Readings before 2026-10-03 used substring headline matching (see
+app/validation.json's methodology_changes). Rows written since record
+`matcher = 'whole_word'`; --whole-word-only keeps just those, so the two
+methods are never mixed in one window.
 
 Offline / testing: --prices-csv file with rows "iso_hour_start,close".
 Stdlib + httpx only (httpx is already in requirements.txt).
@@ -56,19 +64,30 @@ def parse_ts(s: str) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def load_sentiment(db_path: str, symbol: str) -> dict:
+def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False) -> dict:
     """{hour_start: average_compound}. Readings land a few seconds after :00,
-    so flooring to the hour gives the reading AT that hour boundary."""
+    so flooring to the hour gives the reading AT that hour boundary.
+
+    since: drop readings observed before this datetime.
+    whole_word_only: keep only rows scored by the whole-word matcher
+    (matcher = 'whole_word'); a DB without that column has none."""
     conn = sqlite3.connect(db_path)
-    rows = conn.execute(
-        "SELECT observed_at, average_compound FROM sentiment_hourly "
-        "WHERE symbol = ? AND average_compound IS NOT NULL ORDER BY observed_at",
-        (symbol,),
-    ).fetchall()
+    sql = ("SELECT observed_at, average_compound FROM sentiment_hourly "
+           "WHERE symbol = ? AND average_compound IS NOT NULL")
+    if whole_word_only:
+        columns = {r[1] for r in conn.execute("PRAGMA table_info(sentiment_hourly)")}
+        if "matcher" not in columns:
+            conn.close()
+            return {}
+        sql += " AND matcher = 'whole_word'"
+    rows = conn.execute(sql + " ORDER BY observed_at", (symbol,)).fetchall()
     conn.close()
     out = {}
     for ts, val in rows:
-        h = hour_floor(parse_ts(ts))
+        observed = parse_ts(ts)
+        if since is not None and observed < since:
+            continue
+        h = hour_floor(observed)
         out.setdefault(h, float(val))  # keep first reading if duplicated
     return out
 
@@ -191,12 +210,16 @@ def main():
     ap.add_argument("--symbol", default="BTC")
     ap.add_argument("--prices-csv", help="offline prices: iso_hour_start,close")
     ap.add_argument("--out", help="write/merge result JSON (e.g. app/validation.json)")
+    ap.add_argument("--since", type=parse_ts, help="only readings observed at or after this ISO time")
+    ap.add_argument("--whole-word-only", action="store_true",
+                    help="only readings scored by the whole-word matcher (2026-10-03 on)")
     a = ap.parse_args()
     sym = a.symbol.upper()
 
-    sent = load_sentiment(a.db, sym)
+    sent = load_sentiment(a.db, sym, since=a.since, whole_word_only=a.whole_word_only)
     if len(sent) < 2:
-        sys.exit(f"Only {len(sent)} hourly rows for {sym} in {a.db}; nothing to analyze yet.")
+        which = " whole-word" if a.whole_word_only else ""
+        sys.exit(f"Only {len(sent)}{which} hourly rows for {sym} in {a.db}; nothing to analyze yet.")
     first, last = min(sent), max(sent)
     pad = timedelta(hours=MAX_OFFSET + 2)
     closes = (load_prices_csv(a.prices_csv) if a.prices_csv
@@ -217,6 +240,7 @@ def main():
             "window_start": first.isoformat(),
             "window_end": last.isoformat(),
             "paired_hours": res["paired_hours"],
+            "readings": "whole-word matcher only" if a.whole_word_only else "all matchers",
             "offsets": res["offsets"],
         }
         doc["updated"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()

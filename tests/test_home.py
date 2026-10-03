@@ -74,7 +74,7 @@ def test_html_page_reflects_pricing_and_validation(client):
     html = client.get("/", headers={"Accept": BROWSER_ACCEPT}).text
     for plan in pricing()["subscriptions"].values():
         assert plan["label"] in html
-    assert "2026-10-12" in html  # first_results_expected from app/validation.json
+    assert "2026-10-17" in html  # first_results_expected from app/validation.json
     assert 'href="/validation"' in html
 
 

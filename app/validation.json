@@ -1,18 +1,27 @@
 {
   "question": "Does the sentiment score lead, coincide with, or lag price?",
-  "method": "Hourly change in average_compound vs hourly log return (Coinbase SYMBOL-USD candles), cross-correlation at offsets -12h..+12h. Positive offset = price moves after sentiment (sentiment leads). Significance uses a Bonferroni-corrected threshold across all 25 offsets. Script: scripts/leadlag.py.",
+  "method": "Hourly change in average_compound vs hourly log return (Coinbase SYMBOL-USD candles), cross-correlation at offsets -12h..+12h. Positive offset = price moves after sentiment (sentiment leads). Significance uses a Bonferroni-corrected threshold across all 25 offsets. Only readings scored by the whole-word headline matcher (2026-10-03 on) are used. Script: scripts/leadlag.py --whole-word-only.",
   "honest_prior": "Scored from published news headlines, so the expectation is coincident-to-lagging. Results will be published here whatever they show.",
-  "updated": "2026-09-28T13:00:00+00:00",
+  "methodology_changes": [
+    {
+      "date": "2026-10-03",
+      "change": "Headline matching changed from a substring test to whole-word, case-insensitive matching of the ticker, the coin name and per-coin aliases (for example \"Ether\" for ETH). Tickers that are ordinary words (LINK, DOT, NEAR, PUMP, HYPE, TAO) count only as \"$TICKER\" or by name, and HTML tags in feed descriptions are ignored when matching.",
+      "before": "Readings before 2026-10-03, and any made that day before the change was deployed, used substring matching, which counted words like \"whether\", \"Tether\" and \"together\" as ETH and \"solution\" as SOL. In a 224-headline sample on 2026-10-03, 16 of 47 ETH matches, 8 of 63 BTC, 8 of 15 SOL and 8 of 9 LINK were false.",
+      "effect_on_validation": "Hourly readings now record which matcher produced them. Lead/lag results are computed only from whole-word readings (scripts/leadlag.py --whole-word-only), so the two methods are never mixed in one window. First results are expected 14 days after the change is deployed.",
+      "applies_to": "Every score: on-demand calls, alerts, the hourly log and the daily dataset."
+    }
+  ],
+  "updated": "2026-10-03T00:00:00+00:00",
   "symbols": {
     "BTC": {
       "status": "measuring",
       "logging_since": "2026-09-28T13:00:00+00:00",
-      "first_results_expected": "2026-10-12"
+      "first_results_expected": "2026-10-17"
     },
     "ETH": {
       "status": "measuring",
       "logging_since": "2026-09-28T13:00:00+00:00",
-      "first_results_expected": "2026-10-12"
+      "first_results_expected": "2026-10-17"
     }
   }
 }

@@ -15,7 +15,8 @@ far as CSV or JSON.
 
 Env vars (see .env.example):
   SNAPSHOT_SYMBOLS           - comma-separated symbols to track (default:
-                                every symbol in app/coins.py's COIN_NAMES)
+                                app/coins.py's ORIGINAL_SYMBOLS, the 15
+                                coins tracked before more names were added)
   SNAPSHOT_INTERVAL_SECONDS  - how often the loop wakes up to check whether
                                 today's snapshot is still needed (default
                                 3600 = hourly; it still only records ONE
@@ -34,14 +35,14 @@ from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 
 from app.billing import API_KEY_SECURITY, _db, TIERS, dataset_plans, get_key_info
-from app.coins import COIN_NAMES
+from app.coins import ORIGINAL_SYMBOLS
 from app.sentiment_service import compute_sentiment_payload
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
 
 SNAPSHOT_SYMBOLS = [
     s.strip().upper()
-    for s in os.environ.get("SNAPSHOT_SYMBOLS", ",".join(COIN_NAMES.keys())).split(",")
+    for s in os.environ.get("SNAPSHOT_SYMBOLS", ",".join(ORIGINAL_SYMBOLS)).split(",")
     if s.strip()
 ]
 SNAPSHOT_INTERVAL_SECONDS = int(os.environ.get("SNAPSHOT_INTERVAL_SECONDS", "3600"))
