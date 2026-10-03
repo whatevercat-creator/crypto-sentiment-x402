@@ -203,7 +203,8 @@ def render_home(
 sentiment analysis plus a crypto slang lexicon.</p>
 <p class="tags">You get back a
 <span class="bull">bullish</span><span class="bear">bearish</span><span class="neu">neutral</span>
-label, a numeric score, and a per-source breakdown.</p>
+label, a numeric score, a per-source breakdown, and the up to 5 headlines that moved the
+score most (titles and links only).</p>
 
 <h2>Pricing</h2>
 <div class="price">

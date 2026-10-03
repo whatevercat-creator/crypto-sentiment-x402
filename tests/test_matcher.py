@@ -171,9 +171,13 @@ def test_feed_skipped_after_second_5xx_and_not_retried_on_4xx(monkeypatch):
     assert calls["www.dlnews.com"] == 2 and calls["decrypt.co"] == 1
 
 
+def _h(text):
+    return news.Headline(title=text, source="Test", link=None, published=None, text=text)
+
+
 def test_select_headlines_whole_word():
-    items = [t.split("\n")[0] for t in ["Ether rallies whether or not", "Tether update together"]]
-    assert news.select_headlines(items, "ETH") == ["Ether rallies whether or not"]
+    items = [_h("Ether rallies whether or not"), _h("Tether update together")]
+    assert news.select_headlines(items, "ETH") == [items[0]]
 
 
 # --------------------------------------------------------------------------
@@ -197,7 +201,7 @@ def test_hourly_fetches_feeds_once_for_all_symbols(monkeypatch, fresh_hourly_db)
 
     async def fake_items(limit_per_feed=30):
         fetches["feeds"] += 1
-        return ["Ether rallies", "Solana and XRP climb", "Bitcoin dips", "Tether whether"]
+        return [_h(t) for t in ("Ether rallies", "Solana and XRP climb", "Bitcoin dips", "Tether whether")]
 
     async def fake_fng():
         fetches["fng"] += 1

@@ -90,14 +90,56 @@ if not os.environ.get("CDP_API_KEY_ID") or not os.environ.get("CDP_API_KEY_SECRE
         "Get a free API key at https://portal.cdp.coinbase.com"
     )
 
-# Example /sentiment response, shared by the Bazaar discovery metadata and
-# the HTML home page.
+# Example /sentiment response, shared by the Bazaar discovery metadata, the
+# OpenAPI spec and the HTML home page. Sample headlines and example.com
+# links, not real articles.
 EXAMPLE_RESPONSE = {
     "symbol": "BTC",
     "name": "Bitcoin",
     "overall_sentiment": {
         "label": "bullish",
         "average_compound": 0.21,
+    },
+    "drivers": [
+        {
+            "title": "Bitcoin ETFs log fifth straight day of inflows",
+            "source": "CoinDesk",
+            "link": "https://example.com/news/bitcoin-etf-inflows",
+            "published": "2026-10-03T14:05:00Z",
+            "score": 0.6249,
+        },
+        {
+            "title": "Exchange hack drains $40M as bitcoin dips",
+            "source": "The Block",
+            "link": "https://example.com/news/exchange-hack",
+            "published": "2026-10-03T12:40:00Z",
+            "score": -0.5719,
+        },
+        {
+            "title": "Bitcoin miners report record hashrate",
+            "source": "Decrypt",
+            "link": "https://example.com/news/record-hashrate",
+            "published": "2026-10-03T11:15:00Z",
+            "score": 0.4404,
+        },
+    ],
+    "drivers_summary": "2 of the top 3 headlines are positive, 1 is negative.",
+}
+
+_NULLABLE_STRING = {"type": ["string", "null"]}
+DRIVERS_SCHEMA = {
+    "type": "array",
+    "maxItems": 5,
+    "items": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "source": {"type": "string"},
+            "link": _NULLABLE_STRING,
+            "published": _NULLABLE_STRING,
+            "score": {"type": "number"},
+        },
+        "required": ["title", "source", "link", "published", "score"],
     },
 }
 
@@ -127,6 +169,8 @@ SENTIMENT_DISCOVERY = declare_discovery_extension(
                 "symbol": {"type": "string"},
                 "name": {"type": "string"},
                 "overall_sentiment": {"type": "object"},
+                "drivers": DRIVERS_SCHEMA,
+                "drivers_summary": {"type": "string"},
             },
             "required": ["symbol", "overall_sentiment"],
         },
@@ -153,7 +197,7 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL News) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, sentiment score, and per-source breakdown as JSON. Useful for trading bots and market research agents. Path param: symbol, e.g. /sentiment/BTC.",
+        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL News) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, score, per-source breakdown and the top 5 headlines behind it (title, link) as JSON. For trading bots and research agents. Path param: symbol, e.g. /sentiment/BTC.",
         mime_type="application/json",
         extensions=SENTIMENT_DISCOVERY,
     ),
@@ -434,6 +478,14 @@ Example: GET /sentiment/BTC
 - Transparency: /transparency
 - Signal validation (does the score lead or lag price?): /validation
 
+## Response
+JSON with `overall_sentiment` (label: bullish/bearish/neutral, and
+average_compound from -1 to 1), a per-source `breakdown`, and `drivers`: up
+to 5 headlines that moved the score most, largest first, each with title,
+source, link, published (ISO 8601 UTC) and its own score. Titles and links
+only, never article text. `drivers_summary` is one plain line such as
+"3 of the top 5 headlines are negative, 2 are positive."
+
 ## Data sources
 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
 Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL
@@ -531,6 +583,15 @@ async def transparency():
     }
 
 
+SENTIMENT_200 = {
+    "description": "Sentiment for the symbol. `drivers` lists up to 5 headlines that "
+    "moved the score most (title, source, link, published time and each one's own "
+    "score), largest first; titles and links only, never article text. "
+    "`drivers_summary` is one plain line about them.",
+    "content": {"application/json": {"example": EXAMPLE_RESPONSE}},
+}
+
+
 # Tells x402 directories (x402scan / @agentcash/discovery) this is the paid
 # route and what it costs; the 402 challenge itself comes from the paywall.
 SENTIMENT_PAYMENT_INFO = {
@@ -545,6 +606,7 @@ SENTIMENT_PAYMENT_INFO = {
     "/sentiment/{symbol}",
     openapi_extra=SENTIMENT_PAYMENT_INFO,
     responses={
+        200: SENTIMENT_200,
         402: {
             "description": "Payment required. The x402 payment requirements are in "
             "the PAYMENT-REQUIRED header and mirrored in the JSON body."
@@ -552,7 +614,11 @@ SENTIMENT_PAYMENT_INFO = {
     },
 )
 async def get_sentiment(symbol: str):
-    """x402 pay-per-call lane -- gated by PaymentMiddlewareASGI above."""
+    """x402 pay-per-call lane -- gated by PaymentMiddlewareASGI above.
+
+    Returns the label and score plus `drivers`: up to 5 headlines that moved
+    the score most (title, source, link, published, score; never article
+    text), and `drivers_summary`, one plain line about them."""
     try:
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:
@@ -560,9 +626,12 @@ async def get_sentiment(symbol: str):
     return JSONResponse(payload)
 
 
-@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY)
+@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200})
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
-    """Stripe-subscription lane -- gated by an API key issued via /billing/*."""
+    """Stripe-subscription lane -- gated by an API key issued via /billing/*.
+
+    Same response as /sentiment/{symbol}, including `drivers` and
+    `drivers_summary`, plus `_billing` usage."""
     usage = verify_and_charge_api_key(x_api_key)
     try:
         payload = await compute_sentiment_payload(symbol)

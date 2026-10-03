@@ -12,7 +12,8 @@ current hour (e.g. after a mid-hour restart) it is skipped, and if the
 sources fail that hour is left as a gap rather than filled in. All symbols
 are scored from one fetch of the feeds per hour, and each row records the
 headline matcher that produced it (`matcher`; NULL for substring-era rows
-from before 2026-10-03).
+from before 2026-10-03) and, as JSON, the top 3 headlines that drove it
+(`drivers`; NULL for earlier rows).
 
 Note: the Fear & Greed Index only updates once a day, so fear_greed_value is
 constant within a day here -- only average_compound moves hourly.
@@ -25,6 +26,7 @@ CAVEAT: same single-instance assumption as ALERTS.md / DATASET.md.
 """
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -41,6 +43,10 @@ HOURLY_SYMBOLS = [
     for s in os.environ.get("HOURLY_SYMBOLS", "BTC,ETH").split(",")
     if s.strip()
 ]
+
+
+# Headlines stored with each hourly row (the response carries up to 5).
+HOURLY_DRIVERS = 3
 
 
 def init_hourly_db() -> None:
@@ -66,6 +72,11 @@ def init_hourly_db() -> None:
         columns = {row[1] for row in conn.execute("PRAGMA table_info(sentiment_hourly)")}
         if "matcher" not in columns:
             conn.execute("ALTER TABLE sentiment_hourly ADD COLUMN matcher TEXT")
+        # Top HOURLY_DRIVERS headlines behind the reading, as JSON (title,
+        # source, link, published, score). NULL for rows from before
+        # 2026-10-03, which didn't record them.
+        if "drivers" not in columns:
+            conn.execute("ALTER TABLE sentiment_hourly ADD COLUMN drivers TEXT")
 
 
 def _already_logged(symbol: str, hour_start: datetime) -> bool:
@@ -106,12 +117,13 @@ async def log_hour(symbols: list) -> None:
         compound = overall.get("average_compound")
         sample_size = overall.get("sample_size")
         fng_value = fng.get("value")
+        drivers = json.dumps(payload.get("drivers", [])[:HOURLY_DRIVERS])
         with _db() as conn:
             conn.execute(
                 "INSERT INTO sentiment_hourly "
-                "(symbol, observed_at, average_compound, sample_size, fear_greed_value, matcher) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (symbol, observed_at, compound, sample_size, fng_value, MATCHER_VERSION),
+                "(symbol, observed_at, average_compound, sample_size, fear_greed_value, matcher, drivers) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (symbol, observed_at, compound, sample_size, fng_value, MATCHER_VERSION, drivers),
             )
             total = conn.execute(
                 "SELECT COUNT(*) FROM sentiment_hourly WHERE symbol = ?", (symbol,)

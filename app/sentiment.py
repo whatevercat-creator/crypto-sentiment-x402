@@ -27,6 +27,11 @@ CRYPTO_LEXICON: Dict[str, float] = {
 _analyzer.lexicon.update(CRYPTO_LEXICON)
 
 
+def score_text(text: str) -> float:
+    """VADER compound score (-1..1) for one snippet, as score_texts uses."""
+    return _analyzer.polarity_scores(text)["compound"]
+
+
 def score_texts(texts: List[str]) -> Dict:
     """
     Score a list of text snippets and return an aggregate summary.
