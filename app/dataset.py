@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Header, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 
-from app.billing import _db, TIERS, dataset_plans, get_key_info
+from app.billing import API_KEY_SECURITY, _db, TIERS, dataset_plans, get_key_info
 from app.coins import COIN_NAMES
 from app.sentiment_service import compute_sentiment_payload
 
@@ -167,7 +167,7 @@ def dataset_info():
     }
 
 
-@router.get("/export", openapi_extra={"security": []})
+@router.get("/export", openapi_extra=API_KEY_SECURITY)
 def dataset_export(
     x_api_key: str = Header(..., alias="X-API-Key"),
     format: str = Query("csv", pattern="^(csv|json)$"),

@@ -37,7 +37,12 @@ router = APIRouter(prefix="/rapidapi", tags=["rapidapi"])
 RAPIDAPI_PROXY_SECRET = os.environ.get("RAPIDAPI_PROXY_SECRET", "")
 
 
-@router.get("/sentiment/{symbol}", openapi_extra={"security": []})
+# Only RapidAPI's proxy can call this (it sends the shared proxy secret), so
+# it's declared as needing that header rather than as a free route.
+RAPIDAPI_SCHEME = "RapidAPIProxySecret"
+
+
+@router.get("/sentiment/{symbol}", openapi_extra={"security": [{RAPIDAPI_SCHEME: []}]})
 async def rapidapi_sentiment(
     symbol: str,
     x_rapidapi_proxy_secret: str | None = Header(None, alias="X-RapidAPI-Proxy-Secret"),

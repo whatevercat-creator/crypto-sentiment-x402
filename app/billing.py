@@ -119,6 +119,13 @@ class _FormAwareRoute(APIRoute):
 
 router = APIRouter(prefix="/billing", tags=["billing"], route_class=_FormAwareRoute)
 
+# OpenAPI security for routes that need a subscription key in X-API-Key.
+# Declaring it tells x402 directories (x402scan) these routes take an API
+# key rather than an x402 payment, so they aren't probed for a 402. The
+# scheme itself is added to components.securitySchemes in app/main.py.
+API_KEY_SCHEME = "ApiKeyAuth"
+API_KEY_SECURITY = {"security": [{API_KEY_SCHEME: []}]}
+
 
 def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)

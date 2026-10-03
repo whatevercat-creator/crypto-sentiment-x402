@@ -27,6 +27,7 @@ import binascii
 import asyncio
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 from urllib.parse import unquote
 
@@ -57,12 +58,14 @@ from app.billing import (
     pricing as billing_pricing,
     TIERS,
     X402_PRICE_USD,
+    API_KEY_SCHEME,
+    API_KEY_SECURITY,
 )
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
-from app.rapidapi import router as rapidapi_router
+from app.rapidapi import router as rapidapi_router, RAPIDAPI_SCHEME
 from app.integrations import router as integrations_router
 from app.sentiment_service import compute_sentiment_payload
 from app.sources.news import NEWS_OUTLETS
@@ -268,6 +271,21 @@ _base_openapi = app.openapi
 def _openapi_with_guidance():
      schema = _base_openapi()
      schema.setdefault("info", {})["x-guidance"] = X_GUIDANCE
+     schema.setdefault("components", {})["securitySchemes"] = {
+          API_KEY_SCHEME: {
+               "type": "apiKey",
+               "in": "header",
+               "name": "X-API-Key",
+               "description": "Subscription key from POST /billing/signup-free "
+               "or POST /billing/checkout/{tier}.",
+          },
+          RAPIDAPI_SCHEME: {
+               "type": "apiKey",
+               "in": "header",
+               "name": "X-RapidAPI-Proxy-Secret",
+               "description": "Sent by RapidAPI's proxy; subscribe on RapidAPI to use this route.",
+          },
+     }
      return schema
 
 
@@ -373,6 +391,14 @@ async def validation():
     """Lead/lag of the sentiment score vs price. Free. Updated by
     scripts/leadlag.py --out app/validation.json, then committed."""
     return _load_validation()
+
+
+_FAVICON = (Path(__file__).parent / "static" / "favicon.ico").read_bytes()
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(_FAVICON, media_type="image/x-icon", headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.head("/health", include_in_schema=False)
@@ -503,7 +529,26 @@ async def transparency():
     }
 
 
-@app.get("/sentiment/{symbol}")
+# Tells x402 directories (x402scan / @agentcash/discovery) this is the paid
+# route and what it costs; the 402 challenge itself comes from the paywall.
+SENTIMENT_PAYMENT_INFO = {
+    "x-payment-info": {
+        "price": {"mode": "fixed", "currency": "USD", "amount": PRICE_USD.lstrip("$")},
+        "protocols": [{"x402": {}}],
+    }
+}
+
+
+@app.get(
+    "/sentiment/{symbol}",
+    openapi_extra=SENTIMENT_PAYMENT_INFO,
+    responses={
+        402: {
+            "description": "Payment required. The x402 payment requirements are in "
+            "the PAYMENT-REQUIRED header and mirrored in the JSON body."
+        }
+    },
+)
 async def get_sentiment(symbol: str):
     """x402 pay-per-call lane -- gated by PaymentMiddlewareASGI above."""
     try:
@@ -513,7 +558,7 @@ async def get_sentiment(symbol: str):
     return JSONResponse(payload)
 
 
-@app.get("/v1/sentiment/{symbol}", openapi_extra={"security": []})
+@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY)
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
     """Stripe-subscription lane -- gated by an API key issued via /billing/*."""
     usage = verify_and_charge_api_key(x_api_key)

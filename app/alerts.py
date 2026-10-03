@@ -36,7 +36,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, field_validator
 
-from app.billing import _db, TIERS, get_key_info
+from app.billing import API_KEY_SECURITY, _db, TIERS, get_key_info
 from app.coins import validate_symbol
 from app.sentiment_service import compute_sentiment_payload
 
@@ -106,7 +106,7 @@ class WatchCreate(BaseModel):
         return v
 
 
-@router.post("/watch", openapi_extra={"security": []})
+@router.post("/watch", openapi_extra=API_KEY_SECURITY)
 def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Key")):
     key_info = get_key_info(x_api_key)
     tier = key_info["tier"]
@@ -162,7 +162,7 @@ def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Ke
     }
 
 
-@router.get("/watch")
+@router.get("/watch", openapi_extra=API_KEY_SECURITY)
 def list_watches(x_api_key: str = Header(..., alias="X-API-Key")):
     get_key_info(x_api_key)
     with _db() as conn:
@@ -174,7 +174,7 @@ def list_watches(x_api_key: str = Header(..., alias="X-API-Key")):
     return {"watches": [dict(r) for r in rows]}
 
 
-@router.delete("/watch/{watch_id}", openapi_extra={"security": []})
+@router.delete("/watch/{watch_id}", openapi_extra=API_KEY_SECURITY)
 def delete_watch(watch_id: int, x_api_key: str = Header(..., alias="X-API-Key")):
     get_key_info(x_api_key)
     with _db() as conn:
@@ -187,7 +187,7 @@ def delete_watch(watch_id: int, x_api_key: str = Header(..., alias="X-API-Key"))
     return {"status": "canceled", "id": watch_id}
 
 
-@router.get("/history", openapi_extra={"security": []})
+@router.get("/history", openapi_extra=API_KEY_SECURITY)
 def alert_history(x_api_key: str = Header(..., alias="X-API-Key"), limit: int = 20):
     get_key_info(x_api_key)
     limit = max(1, min(limit, 100))
