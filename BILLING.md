@@ -82,8 +82,32 @@ curl $APP_BASE_URL/v1/sentiment/BTC -H "X-API-Key: csk_..."
 curl -X POST $APP_BASE_URL/billing/checkout/starter
 # -> {"checkout_url": "https://checkout.stripe.com/..."}
 # open that URL, complete checkout, land on /billing/success?session_id=...
-# which returns the provisioned key once the webhook has landed.
+# which shows the provisioned key once the webhook has landed (for 15 minutes).
 ```
+
+## How to reissue a key
+
+A paid key is shown on `/billing/success` only for 15 minutes after checkout.
+A subscriber who loses it is told to email hi@forgealone.com from the address
+they used at checkout. To replace their key:
+
+1. Check the request came from the email on the subscription (Stripe
+   dashboard → Customers). Don't send a key to any other address.
+2. In the Render dashboard, open the service → **Shell** (the billing database
+   is on its disk at `/data/billing.db`), and run:
+
+   ```bash
+   python -m app.reissue_key --email buyer@example.com
+   # or by Stripe customer ID:
+   python -m app.reissue_key --customer cus_ABC123
+   ```
+
+   It lists the matching keys (masked) and asks before changing anything. If
+   several active keys match, rerun with `--key-prefix csk_XXXX` to pick one.
+3. Reply to the subscriber with the new key the script prints.
+
+The key is replaced in place: the old key stops working immediately, and the
+plan, Stripe subscription, this month's usage and alert watches carry over.
 
 ## Notes / what's deliberately left out of this first pass
 
