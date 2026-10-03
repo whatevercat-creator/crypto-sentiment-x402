@@ -45,7 +45,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
-from app.home import render_free_key_page, render_message_page
+from app.home import render_api_key_page, render_message_page
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
@@ -276,10 +276,12 @@ async def _signup_free_form(request: Request):
         )
     result = _issue_free_key(email)
     return HTMLResponse(
-        render_free_key_page(
+        render_api_key_page(
+            plan_label=TIERS["free"]["label"].lower(),
             api_key=result["api_key"],
             calls_per_month=result["calls_per_month"],
             base_url=APP_BASE_URL,
+            save_note="It won't be shown again.",
         ),
         # The page shows a secret that's never shown again; keep it out of caches.
         headers={"Cache-Control": "no-store"},
@@ -303,8 +305,43 @@ _FORM_HANDLERS = {
 }
 
 
+# Page titles for /billing/success failures, by status code.
+_SUCCESS_ERROR_TITLES = {
+    202: "Almost there",
+    400: "That checkout link isn't valid",
+    503: "Checkout isn't available",
+}
+
+
 @router.get("/success", openapi_extra={"security": []})
-def checkout_success(session_id: str):
+def checkout_success(session_id: str, request: Request):
+    # Stripe redirects the buyer's browser here after checkout. Browsers
+    # (Accept: text/html, as on GET /) get a page; API clients get JSON.
+    if "text/html" not in request.headers.get("accept", "").lower():
+        return _provisioned_key(session_id)
+    try:
+        result = _provisioned_key(session_id)
+    except HTTPException as e:
+        return HTMLResponse(
+            render_message_page(_SUCCESS_ERROR_TITLES.get(e.status_code, "Something went wrong"), str(e.detail)),
+            status_code=e.status_code,
+            headers={"Vary": "Accept"},
+        )
+    cfg = TIERS[result["tier"]]
+    return HTMLResponse(
+        render_api_key_page(
+            plan_label=cfg["label"],
+            api_key=result["api_key"],
+            calls_per_month=cfg["limit"],
+            base_url=APP_BASE_URL,
+            save_note="Keep it secret: anyone with it can use your plan's calls.",
+        ),
+        # The page shows the key; keep it out of caches.
+        headers={"Cache-Control": "no-store", "Vary": "Accept"},
+    )
+
+
+def _provisioned_key(session_id: str) -> dict:
     if not stripe.api_key:
         raise HTTPException(503, "Stripe isn't configured on this deployment.")
 

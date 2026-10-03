@@ -137,14 +137,16 @@ def render_message_page(title: str, message: str) -> str:
     return _page(title, f"<p>{escape(message)}</p>")
 
 
-def render_free_key_page(*, api_key: str, calls_per_month: int, base_url: str) -> str:
+def render_api_key_page(
+    *, plan_label: str, api_key: str, calls_per_month: int, base_url: str, save_note: str
+) -> str:
     curl = escape(f'curl -H "X-API-Key: {api_key}" {base_url}/v1/sentiment/BTC')
     return _page(
-        "Your free API key",
+        f"Your {plan_label} API key",
         f'<p class="key"><code>{escape(api_key)}</code></p>'
-        "<p><strong>Save this key now.</strong> It won't be shown again.</p>"
-        f"<p>It gives you {calls_per_month:,} calls a month on "
-        "<code>GET /v1/sentiment/{symbol}</code>. Send it in the <code>X-API-Key</code> header:</p>"
+        f"<p><strong>Save this key now.</strong> {escape(save_note)}</p>"
+        f"<p>Your {escape(plan_label)} plan gives you {calls_per_month:,} calls a month on "
+        "<code>GET /v1/sentiment/{symbol}</code>. Send the key in the <code>X-API-Key</code> header:</p>"
         f"<pre><code>{curl}</code></pre>",
     )
 

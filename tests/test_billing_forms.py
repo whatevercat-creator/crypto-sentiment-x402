@@ -115,3 +115,68 @@ def test_free_signup_json_unchanged(client):  # noqa: F811
     missing = client.post("/billing/signup-free", json={})
     assert missing.status_code == 422
     assert missing.json()["detail"][0]["loc"] == ["body", "email"]
+
+
+@pytest.fixture
+def stripe_session(client, monkeypatch):  # noqa: F811
+    """A completed checkout whose webhook already provisioned a Pro key."""
+    monkeypatch.setattr(billing.stripe, "api_key", "sk_test_dummy")
+    monkeypatch.setattr(billing.time, "sleep", lambda seconds: None)
+
+    def retrieve(session_id):
+        if session_id == "cs_bad":
+            raise billing.stripe.InvalidRequestError("No such checkout.session", "session")
+        return types.SimpleNamespace(to_dict=lambda: {"customer": f"cus_{session_id}"})
+
+    monkeypatch.setattr(billing.stripe.checkout.Session, "retrieve", retrieve)
+    key = "csk_success_page_test"
+    with _db() as conn:
+        conn.execute("DELETE FROM api_keys WHERE api_key = ?", (key,))
+        conn.execute(
+            "INSERT INTO api_keys (api_key, email, tier, stripe_customer_id, status, "
+            "period_calls_used, period_start, created_at) "
+            "VALUES (?, 'buyer@example.com', 'pro', 'cus_cs_paid', 'active', 0, ?, ?)",
+            (key, billing._now_iso(), billing._now_iso()),
+        )
+    return client, key
+
+
+def test_success_page_for_browsers(stripe_session):
+    client, key = stripe_session
+    r = client.get("/billing/success", params={"session_id": "cs_paid"},
+                   headers={"Accept": BROWSER_ACCEPT})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert r.headers["cache-control"] == "no-store"
+    pro = billing.TIERS["pro"]
+    assert f"Your {pro['label']} API key" in r.text
+    assert f"<code>{key}</code>" in r.text
+    assert f"{pro['limit']:,} calls a month" in r.text
+    assert f"X-API-Key: {key}" in r.text and "/v1/sentiment/BTC" in r.text
+    assert "<script" not in r.text.lower()
+
+
+def test_success_json_unchanged(stripe_session):
+    client, key = stripe_session
+    r = client.get("/billing/success", params={"session_id": "cs_paid"})
+    assert r.status_code == 200
+    assert r.json() == {
+        "api_key": key,
+        "tier": "pro",
+        "note": "Save this key now -- it will not be shown again. "
+        "Use it as the X-API-Key header on GET /v1/sentiment/{symbol}.",
+    }
+
+
+@pytest.mark.parametrize(
+    "session_id,status,title",
+    [("cs_bad", 400, "That checkout link isn&#x27;t valid"), ("cs_pending", 202, "Almost there")],
+)
+def test_success_problems_show_a_page(stripe_session, session_id, status, title):
+    client, _ = stripe_session
+    r = client.get("/billing/success", params={"session_id": session_id},
+                   headers={"Accept": BROWSER_ACCEPT})
+    assert r.status_code == status
+    assert r.headers["content-type"].startswith("text/html")
+    assert title in r.text
+    assert "csk_" not in r.text
