@@ -36,12 +36,12 @@ import os
 import secrets
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs
 
 import stripe
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
@@ -312,10 +312,30 @@ _FORM_HANDLERS = {
 }
 
 
+# /billing/success shows a subscriber's key only this long after the
+# checkout completed (when the webhook stored the key), so a leaked or
+# shared success link stops revealing it. Lost keys are reissued by hand:
+# see "How to reissue a key" in BILLING.md.
+KEY_DISPLAY_MINUTES = 15
+SUPPORT_EMAIL = "hi@forgealone.com"
+_KEY_SHOWN_NOTE = (
+    f"Save this key now -- it's shown for {KEY_DISPLAY_MINUTES} minutes after checkout. "
+    "Use it as the X-API-Key header on GET /v1/sentiment/{symbol}."
+)
+_KEY_ALREADY_ISSUED = (
+    f"Your API key was already issued. It's shown for {KEY_DISPLAY_MINUTES} minutes "
+    f"after checkout. If you've lost it, email {SUPPORT_EMAIL} from the address you "
+    "used at checkout and we'll send you a replacement."
+)
+# On every /billing/success response: the key must not be cached, and the
+# session_id in the URL must not leak to other sites via Referer.
+_SUCCESS_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+
 # Page titles for /billing/success failures, by status code.
 _SUCCESS_ERROR_TITLES = {
     202: "Almost there",
     400: "That checkout link isn't valid",
+    410: "Your key was already issued",
     503: "Checkout isn't available",
 }
 
@@ -324,16 +344,19 @@ _SUCCESS_ERROR_TITLES = {
 def checkout_success(session_id: str, request: Request):
     # Stripe redirects the buyer's browser here after checkout. Browsers
     # (Accept: text/html, as on GET /) get a page; API clients get JSON.
-    if "text/html" not in request.headers.get("accept", "").lower():
-        return _provisioned_key(session_id)
+    wants_html = "text/html" in request.headers.get("accept", "").lower()
     try:
         result = _provisioned_key(session_id)
     except HTTPException as e:
+        if not wants_html:
+            raise HTTPException(e.status_code, e.detail, headers=_SUCCESS_HEADERS)
         return HTMLResponse(
             render_message_page(_SUCCESS_ERROR_TITLES.get(e.status_code, "Something went wrong"), str(e.detail)),
             status_code=e.status_code,
-            headers={"Vary": "Accept"},
+            headers={**_SUCCESS_HEADERS, "Vary": "Accept"},
         )
+    if not wants_html:
+        return JSONResponse(result, headers=_SUCCESS_HEADERS)
     cfg = TIERS[result["tier"]]
     return HTMLResponse(
         render_api_key_page(
@@ -341,11 +364,16 @@ def checkout_success(session_id: str, request: Request):
             api_key=result["api_key"],
             calls_per_month=cfg["limit"],
             base_url=APP_BASE_URL,
-            save_note="Keep it secret: anyone with it can use your plan's calls.",
+            save_note=f"It's shown for {KEY_DISPLAY_MINUTES} minutes after checkout. "
+            "Keep it secret: anyone with it can use your plan's calls.",
         ),
-        # The page shows the key; keep it out of caches.
-        headers={"Cache-Control": "no-store", "Vary": "Accept"},
+        headers={**_SUCCESS_HEADERS, "Vary": "Accept"},
     )
+
+
+def _issued_at(row: sqlite3.Row) -> datetime:
+    issued = datetime.fromisoformat(row["created_at"])
+    return issued if issued.tzinfo else issued.replace(tzinfo=timezone.utc)
 
 
 def _provisioned_key(session_id: str) -> dict:
@@ -366,16 +394,17 @@ def _provisioned_key(session_id: str) -> dict:
     for _ in range(10):
         with _db() as conn:
             row = conn.execute(
-                "SELECT api_key, tier FROM api_keys WHERE stripe_customer_id = ? "
+                "SELECT api_key, tier, created_at FROM api_keys WHERE stripe_customer_id = ? "
                 "ORDER BY created_at DESC LIMIT 1",
                 (customer_id,),
             ).fetchone()
         if row:
+            if datetime.now(timezone.utc) - _issued_at(row) > timedelta(minutes=KEY_DISPLAY_MINUTES):
+                raise HTTPException(410, _KEY_ALREADY_ISSUED)
             return {
                 "api_key": row["api_key"],
                 "tier": row["tier"],
-                "note": "Save this key now -- it will not be shown again. "
-                "Use it as the X-API-Key header on GET /v1/sentiment/{symbol}.",
+                "note": _KEY_SHOWN_NOTE,
             }
         time.sleep(1)
 

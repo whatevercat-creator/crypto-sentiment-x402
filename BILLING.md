@@ -87,11 +87,13 @@ curl -X POST $APP_BASE_URL/billing/checkout/starter
 
 ## Notes / what's deliberately left out of this first pass
 
-- **No email delivery.** The key is only ever shown once, in the API
-  response on `/billing/success` or `/billing/signup-free`. Add an email
-  step (Stripe Checkout can collect the email, or send via any mail API)
-  before you rely on this for real customers — right now, a lost key means
-  re-subscribing.
+- **No email delivery.** A free key is shown once, in the
+  `/billing/signup-free` response. A paid key is shown on `/billing/success`
+  only for 15 minutes after checkout; after that the link says the key was
+  already issued and to email hi@forgealone.com from the checkout address.
+  Add an email step (Stripe Checkout can collect the email, or send via any
+  mail API) for self-service recovery — right now, a lost paid key is
+  reissued by hand.
 - **No customer self-service portal** (cancel/upgrade/see usage). Stripe's
   [Billing Portal](https://docs.stripe.com/customer-management) is a fast
   way to add one — a few lines against `stripe.billingPortal.Session`.

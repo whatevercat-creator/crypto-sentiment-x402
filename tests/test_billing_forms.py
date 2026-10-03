@@ -5,6 +5,7 @@ free key on a page, while API clients keep getting the same JSON.
 """
 
 import types
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -141,13 +142,26 @@ def stripe_session(client, monkeypatch):  # noqa: F811
     return client, key
 
 
+def _issued_minutes_ago(key, minutes):
+    issued = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    with _db() as conn:
+        conn.execute("UPDATE api_keys SET created_at = ? WHERE api_key = ?", (issued, key))
+
+
+def _assert_success_headers(r):
+    assert r.headers["cache-control"] == "no-store"
+    assert r.headers["referrer-policy"] == "no-referrer"
+
+
 def test_success_page_for_browsers(stripe_session):
     client, key = stripe_session
     r = client.get("/billing/success", params={"session_id": "cs_paid"},
                    headers={"Accept": BROWSER_ACCEPT})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
-    assert r.headers["cache-control"] == "no-store"
+    _assert_success_headers(r)
+    assert "shown for 15 minutes" in r.text
+    assert "won&#x27;t be shown again" not in r.text
     pro = billing.TIERS["pro"]
     assert f"Your {pro['label']} API key" in r.text
     assert f"<code>{key}</code>" in r.text
@@ -156,16 +170,39 @@ def test_success_page_for_browsers(stripe_session):
     assert "<script" not in r.text.lower()
 
 
-def test_success_json_unchanged(stripe_session):
+def test_success_json(stripe_session):
     client, key = stripe_session
     r = client.get("/billing/success", params={"session_id": "cs_paid"})
     assert r.status_code == 200
+    _assert_success_headers(r)
     assert r.json() == {
         "api_key": key,
         "tier": "pro",
-        "note": "Save this key now -- it will not be shown again. "
+        "note": "Save this key now -- it's shown for 15 minutes after checkout. "
         "Use it as the X-API-Key header on GET /v1/sentiment/{symbol}.",
     }
+
+
+@pytest.mark.parametrize("minutes,shown", [(14, True), (16, False)])
+def test_key_shown_only_within_15_minutes(stripe_session, minutes, shown):
+    client, key = stripe_session
+    _issued_minutes_ago(key, minutes)
+    as_json = client.get("/billing/success", params={"session_id": "cs_paid"})
+    as_html = client.get("/billing/success", params={"session_id": "cs_paid"},
+                         headers={"Accept": BROWSER_ACCEPT})
+    for r in (as_json, as_html):
+        _assert_success_headers(r)
+        assert (key in r.text) is shown
+    if shown:
+        assert as_json.status_code == as_html.status_code == 200
+        return
+    assert as_json.status_code == as_html.status_code == 410
+    detail = as_json.json()["detail"]
+    assert "already issued" in detail and "shown for 15 minutes" in detail
+    assert "hi@forgealone.com" in detail and "hi@unlisted.sh" not in detail
+    assert as_html.headers["content-type"].startswith("text/html")
+    assert "Your key was already issued" in as_html.text
+    assert "hi@forgealone.com" in as_html.text
 
 
 @pytest.mark.parametrize(
@@ -178,5 +215,10 @@ def test_success_problems_show_a_page(stripe_session, session_id, status, title)
                    headers={"Accept": BROWSER_ACCEPT})
     assert r.status_code == status
     assert r.headers["content-type"].startswith("text/html")
+    _assert_success_headers(r)
     assert title in r.text
     assert "csk_" not in r.text
+    # API clients get the same status, as JSON, with the same headers.
+    j = client.get("/billing/success", params={"session_id": session_id})
+    assert j.status_code == status and "detail" in j.json()
+    _assert_success_headers(j)
