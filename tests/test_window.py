@@ -395,9 +395,9 @@ def test_history_and_archive_carry_window_fields(db, monkeypatch):
     old, new = body["rows"]
     assert old["window"] is None and old["effective_sample_size"] is None
     assert new["window"] == "72h-hl24" and new["unweighted_compound_72h"] is not None
-    assert "72h-hl24" in body["average_compound"]
+    assert "72h-hl24" in body["average_compound_note"]
     summary = archive.archive_summary()
-    assert summary["symbols"]["BTC"]["window_rows"] == 1 and "window" in summary["average_compound"]
+    assert summary["symbols"]["BTC"]["window_rows"] == 1 and "window" in summary["average_compound_note"]
 
 
 # --------------------------------------------------------------------------
@@ -451,3 +451,17 @@ def test_validation_note_and_expected_date(client):
     html = client.get("/", headers={"Accept": "text/html"}).text
     assert "13 days" in html
     assert client.get("/transparency").json()["methodology_changes"][-1]["date"] == "2026-10-04"
+
+
+def test_history_notes_do_not_share_names_with_row_fields(db):
+    example = archive.HISTORY_EXAMPLE
+    row_fields = set().union(*(row.keys() for row in example["rows"]))
+    payload = archive.history_payload("BTC", datetime.now(UTC) - timedelta(days=1), datetime.now(UTC))
+    for body in (example, payload, main.HISTORY_DISCOVERY["bazaar"]["info"]["output"]["example"]):
+        assert not set(body) & row_fields
+        assert "72h-hl24" in body["average_compound_note"] and "average_compound" not in body
+    schema = main.HISTORY_DISCOVERY["bazaar"]["schema"]
+    assert "average_compound_note" in json.dumps(schema)
+    assert not set(archive.archive_summary()) & row_fields
+    openapi = main.app.openapi()["paths"]["/history/{symbol}"]["get"]["responses"]["200"]
+    assert "average_compound_note" in openapi["content"]["application/json"]["example"]

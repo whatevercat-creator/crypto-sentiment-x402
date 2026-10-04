@@ -149,7 +149,7 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
         "newest-headline age and window version.",
         "recording": RECORDING_NOTE,
         "methodology": MATCHER_NOTE,
-        "average_compound": WINDOW_NOTE,
+        "average_compound_note": WINDOW_NOTE,
         "symbols_logged_now": list(HOURLY_SYMBOLS),
         "symbols": symbols,
         "total_rows": sum(s["rows"] for s in symbols.values()),
@@ -240,7 +240,7 @@ def history_payload(symbol: str, start: datetime, end: datetime) -> dict:
         "rows": rows,
         "recording": RECORDING_NOTE,
         "methodology": MATCHER_NOTE,
-        "average_compound": WINDOW_NOTE,
+        "average_compound_note": WINDOW_NOTE,
     }
 
 
@@ -287,7 +287,7 @@ HISTORY_EXAMPLE = {
     ],
     "recording": RECORDING_NOTE,
     "methodology": MATCHER_NOTE,
-    "average_compound": WINDOW_NOTE,
+    "average_compound_note": WINDOW_NOTE,
 }
 
 
@@ -337,7 +337,7 @@ code{{background:var(--panel);padding:1px 5px;border-radius:4px;overflow-wrap:an
 {table}
 </table></div>
 <p class="muted">{escape(summary["methodology"])}</p>
-<p class="muted">{escape(summary["average_compound"])}</p>
+<p class="muted">{escape(summary["average_compound_note"])}</p>
 <h2>Get the readings</h2>
 <p><code>{escape(get["endpoint"])}</code>: {escape(get["price_usd"])} per call, paid with x402 in USDC on Base.
 Default range is the {escape(get["default_range"])}, up to {escape(get["max_range"])}.</p>
