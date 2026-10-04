@@ -7,6 +7,14 @@ tool (`crypto_sentiment`) so Claude Desktop, Claude Code, or any other MCP
 client can call it directly as part of an agent's normal tool use — no
 separate HTTP client code needed on the caller's side.
 
+**What it returns:** sentiment for a ticker symbol (e.g. BTC, ETH, SOL) from
+9 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
+Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant) and the
+Fear & Greed Index. Only headlines from the last 72 hours are scored,
+weighted toward the newest. Each call returns a bullish/bearish/neutral
+label (or "insufficient recent news"), a compound score, a per-source
+breakdown and the headlines behind each score.
+
 **Payment model:** the MCP server itself holds a wallet (via Coinbase
 Developer Platform) and pays the API's x402 price out of that wallet for
 every call, entirely inside your own local process — invisible to the MCP
