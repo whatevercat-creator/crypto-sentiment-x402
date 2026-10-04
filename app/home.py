@@ -162,6 +162,7 @@ def render_home(
     dataset_plans: list,
     example_response: dict,
     validation: dict,
+    history_price_usd: str = "$0.05",
 ) -> str:
     network = "Base" if network_mode == "mainnet" else "Base Sepolia (testnet)"
     ppc = pricing["pay_per_call"]
@@ -223,6 +224,14 @@ with an <code>X-API-Key</code> header:</p>
 <pre><code>{example}</code></pre>
 
 {_validation_html(validation)}
+
+<h2>Hourly archive</h2>
+<p>Every hour the API records a sentiment reading per tracked coin, with the top headlines behind it.
+Readings are recorded live and never backfilled, so the archive only goes back to the first reading.
+<a href="/archive">See what's in it</a>: symbols, first reading, row counts and any missing hours.</p>
+<p>Get the readings with <code>GET /history/{{symbol}}</code> for {escape(history_price_usd)} per call
+over x402 (default the last 7 days, up to 30 days per call). Plans with dataset access get every hourly row
+in <code>/dataset/export</code>.</p>
 
 <h2>Other ways to use it</h2>
 <ul>

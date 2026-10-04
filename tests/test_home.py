@@ -22,6 +22,7 @@ from x402.schemas import SupportedKind, SupportedResponse
 from app import main
 from app.billing import init_db, pricing
 from app.dataset import init_dataset_db
+from app.hourly import init_hourly_db
 
 BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
@@ -56,6 +57,7 @@ def client(monkeypatch):
     )
     init_db()
     init_dataset_db()
+    init_hourly_db()
     # No `with` block: startup would launch the background pollers, which
     # hit the network.
     return TestClient(main.app)

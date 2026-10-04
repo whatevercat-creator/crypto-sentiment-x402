@@ -1,9 +1,10 @@
 """
-Hourly sentiment log for internal lead/lag analysis against price.
+Hourly sentiment log: used for the lead/lag analysis against price and sold
+as the hourly archive (GET /archive describes it, GET /history/{symbol}
+sells it per call, and /dataset/export includes it -- see app/archive.py).
 
-Separate from the daily dataset in app/dataset.py: its own table, its own
-loop, and it is NOT exposed through /dataset/export. Read it straight from
-the sqlite file (BILLING_DB_PATH).
+Separate from the daily dataset in app/dataset.py: its own table and its
+own loop.
 
 A background asyncio loop (started in app/main.py's startup event) wakes at
 the top of every UTC hour and stores one reading per symbol, stamped with the

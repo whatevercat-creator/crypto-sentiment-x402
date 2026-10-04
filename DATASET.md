@@ -72,7 +72,7 @@ curl "$APP_BASE_URL/dataset/export?format=csv" -H "X-API-Key: csk_..." -o histor
   review) worth doing once there's a track record of the export actually
   being useful to someone.
 
-## Hourly log (internal, not sold)
+## Hourly archive
 
 Separately from the daily table above, `app/hourly.py` logs one reading per
 symbol at the top of every UTC hour into its own `sentiment_hourly` table
@@ -81,9 +81,16 @@ symbol at the top of every UTC hour into its own `sentiment_hourly` table
 feeds per hour, so adding symbols adds no feed requests. `matcher` is
 `whole_word` for readings made with the 2026-10-03 headline matcher and NULL
 for earlier, substring-matched rows; `scripts/leadlag.py --whole-word-only`
-analyzes only the former. It's for internal lead/lag analysis against price and
-is **not** included in `/dataset/export` or `/dataset/info`; read it
-straight from the sqlite file. `HOURLY_SYMBOLS` (default `BTC,ETH`;
+analyzes only the former. `drivers` holds the top 3 headlines behind each
+reading as JSON (NULL before 2026-10-03).
+
+It feeds the lead/lag analysis and is sold three ways: `GET /archive` (free)
+lists symbols, first reading, row counts and missing hours; `GET
+/history/{symbol}?start=&end=` returns readings over x402 at
+`X402_HISTORY_PRICE_USD` (default $0.05; default range 7 days, max 30); and
+`/dataset/export` includes every hourly row for plans with dataset access
+(`hourly_rows` in JSON, `table=hourly` for CSV). Readings are recorded live
+and never backfilled. `HOURLY_SYMBOLS` (default `BTC,ETH`;
 `render.yaml` sets `BTC,ETH,XRP,SOL`) picks the symbols and `HOURLY_ENABLED=0` turns it off. Missed hours are left as
 gaps, and `fear_greed_value` only changes once a day since the index itself
 is daily. About 1.8 MB/year for two symbols.

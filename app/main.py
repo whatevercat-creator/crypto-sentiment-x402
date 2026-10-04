@@ -34,7 +34,7 @@ from urllib.parse import unquote
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
 
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Header, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -63,10 +63,12 @@ from app.billing import (
 )
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
+from app import archive
 from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router, RAPIDAPI_SCHEME
 from app.integrations import router as integrations_router
+from app.coins import validate_symbol
 from app.sentiment_service import compute_sentiment_payload
 from app.sources.news import NEWS_OUTLETS
 from app.sweep import sweep_loop
@@ -187,6 +189,58 @@ SENTIMENT_DISCOVERY["bazaar"]["info"]["input"].update(
     pathParams={"symbol": EXAMPLE_RESPONSE["symbol"]},
 )
 
+HISTORY_DISCOVERY = declare_discovery_extension(
+    # No example query params: CDP's probe then sends none, and an unpaid
+    # request gets the 402 whatever the range.
+    input_schema={
+        "properties": {
+            "start": {"type": "string", "description": "ISO 8601 start time (UTC if no offset). Default: end minus 7 days."},
+            "end": {"type": "string", "description": "ISO 8601 end time, exclusive. Default: now. At most 30 days after start."},
+        },
+    },
+    path_params_schema={
+        "properties": {
+            "symbol": {
+                "type": "string",
+                "description": "Uppercase ticker symbol in the URL path, e.g. BTC in /history/BTC. See /archive for which symbols are logged.",
+            },
+        },
+        "required": ["symbol"],
+    },
+    output=OutputConfig(
+        example=archive.HISTORY_EXAMPLE,
+        schema={
+            "properties": {
+                "symbol": {"type": "string"},
+                "start": {"type": "string"},
+                "end": {"type": "string"},
+                "count": {"type": "integer"},
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "observed_at": {"type": "string"},
+                            "average_compound": {"type": ["number", "null"]},
+                            "sample_size": {"type": ["integer", "null"]},
+                            "fear_greed_value": {"type": ["integer", "null"]},
+                            "matcher": _NULLABLE_STRING,
+                            "drivers": {"anyOf": [{"type": "null"}, DRIVERS_SCHEMA]},
+                        },
+                        "required": ["observed_at", "average_compound", "matcher", "drivers"],
+                    },
+                },
+            },
+            "required": ["symbol", "start", "end", "count", "rows"],
+        },
+    ),
+)
+# Same reason as SENTIMENT_DISCOVERY above.
+HISTORY_DISCOVERY["bazaar"]["info"]["input"].update(
+    method="GET",
+    pathParams={"symbol": archive.HISTORY_EXAMPLE["symbol"]},
+)
+
 routes = {
     "GET /sentiment/:symbol": RouteConfig(
         accepts=[
@@ -201,10 +255,24 @@ routes = {
         mime_type="application/json",
         extensions=SENTIMENT_DISCOVERY,
     ),
+    "GET /history/:symbol": RouteConfig(
+        accepts=[
+            PaymentOption(
+                scheme="exact",
+                price=archive.HISTORY_PRICE_USD,
+                network=CAIP2_NETWORK,
+                pay_to=PAY_TO_ADDRESS,
+            ),
+        ],
+        description="Hourly crypto news-sentiment readings for a ticker (e.g. BTC, ETH), recorded live at the top of every UTC hour and never backfilled. Each row: observed_at, average_compound (-1 to 1), sample_size, Fear & Greed value, matcher and the top 3 headlines behind it (title, link). Query start/end as ISO 8601; default last 7 days, max 30 days per call. See /archive for symbols and coverage.",
+        mime_type="application/json",
+        extensions=HISTORY_DISCOVERY,
+    ),
     # NOTE: /v1/sentiment/* is intentionally NOT listed here -- it's the
     # Stripe-subscription lane, gated by verify_and_charge_api_key() below
     # instead of the x402 payment middleware.
 }
+
 
 class Mirror402ChallengeMiddleware(BaseHTTPMiddleware):
     """Mirrors the PAYMENT-REQUIRED challenge into the 402 body.
@@ -273,22 +341,31 @@ def _settlement_tx(header: Optional[str]) -> Optional[str]:
     return tx if isinstance(tx, str) and tx else None
 
 
+# Paid x402 path prefix -> (log event, price).
+_PAID_PREFIXES = {
+    "/sentiment/": ("sentiment_paid_call", PRICE_USD),
+    "/history/": ("history_paid_call", archive.HISTORY_PRICE_USD),
+}
+
+
 class PaidCallLogMiddleware(BaseHTTPMiddleware):
-    """One JSON log line per successful paid /sentiment call. Wraps
-    PaymentMiddlewareASGI because settlement happens there after the route
-    handler returns: a 2xx from /sentiment/* means the payment verified and
-    settled (a failed settlement comes back as a 402). grep the logs for
-    "sentiment_paid_call" to count paid usage."""
+    """One JSON log line per successful paid /sentiment or /history call.
+    Wraps PaymentMiddlewareASGI because settlement happens there after the
+    route handler returns: a 2xx from a paid route means the payment
+    verified and settled (a failed settlement comes back as a 402). grep the
+    logs for "sentiment_paid_call" / "history_paid_call" to count paid usage."""
 
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path.startswith("/sentiment/") and 200 <= response.status_code < 300:
+        prefix = next((p for p in _PAID_PREFIXES if path.startswith(p)), None)
+        if prefix and 200 <= response.status_code < 300:
+            event, price = _PAID_PREFIXES[prefix]
             logger.info(json.dumps({
-                "event": "sentiment_paid_call",
+                "event": event,
                 "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "symbol": unquote(path[len("/sentiment/"):]).upper(),
-                "price": PRICE_USD,
+                "symbol": unquote(path[len(prefix):]).upper(),
+                "price": price,
                 "payer": _payer_from_signature(request.headers.get("payment-signature")),
                 "transaction": _settlement_tx(response.headers.get("payment-response")),
             }))
@@ -306,7 +383,9 @@ X_GUIDANCE = (
      "per-source breakdown built from 10 crypto news outlets plus the Fear & "
      "Greed Index. Use it as one input for market research or trading agents. "
      "It measures news sentiment only; it is not a price prediction or "
-     "financial advice."
+     "financial advice. Past hourly readings: GET /history/{symbol} with optional "
+     f"ISO 8601 start/end (default last 7 days, max 30), {archive.HISTORY_PRICE_USD} "
+     "per call via x402; GET /archive (free) lists symbols and coverage."
 )
 
 _base_openapi = app.openapi
@@ -396,6 +475,7 @@ async def root(request: Request):
             dataset_plans=[cfg["label"] for cfg in TIERS.values() if cfg["dataset_access"]],
             example_response=EXAMPLE_RESPONSE,
             validation=_load_validation(),
+            history_price_usd=archive.HISTORY_PRICE_USD,
         )
         return HTMLResponse(html, headers={"Vary": "Accept"})
     return JSONResponse(_root_index(), headers={"Vary": "Accept"})
@@ -466,6 +546,15 @@ exact current price -- this text file is not the source of truth)
 Network: Base ({NETWORK_MODE}), x402 scheme "exact"
 Example: GET /sentiment/BTC
 
+## Hourly archive (x402)
+GET {PUBLIC_BASE_URL}/history/{{symbol}}?start=<ISO 8601>&end=<ISO 8601>
+Price: {archive.HISTORY_PRICE_USD} USDC per call. Hourly readings recorded live
+and never backfilled; default range the last 7 days, max 30 days per call.
+Each row has observed_at, average_compound, sample_size, fear_greed_value,
+matcher and drivers (top 3 headlines; null for rows before 2026-10-03).
+What exists (symbols, first reading, row counts, missing hours): GET /archive
+(free).
+
 ## Alternative access (not x402)
 - GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota
   (see /billing/pricing)
@@ -512,7 +601,12 @@ async def well_known_x402():
                 "url": f"{PUBLIC_BASE_URL}/sentiment/{{symbol}}",
                 "method": "GET",
                 "description": "Real-time crypto sentiment for a ticker symbol, e.g. BTC, ETH, SOL.",
-            }
+            },
+            {
+                "url": f"{PUBLIC_BASE_URL}/history/{{symbol}}",
+                "method": "GET",
+                "description": "Hourly sentiment readings for a ticker over a time range (default 7 days, max 30).",
+            },
         ],
         "attestation": {"type": "none"},
         "docs": f"{PUBLIC_BASE_URL}/docs",
@@ -624,6 +718,63 @@ async def get_sentiment(symbol: str):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return JSONResponse(payload)
+
+
+@app.get("/archive", openapi_extra={"security": []})
+async def archive_page(request: Request):
+    """What the hourly archive holds: symbols, first reading, row counts and
+    missing hours. Readings are recorded live and never backfilled. Free.
+    Browsers get an HTML page; everything else gets JSON."""
+    summary = archive.archive_summary()
+    if "text/html" in request.headers.get("accept", "").lower():
+        return HTMLResponse(archive.render_archive_html(summary), headers={"Vary": "Accept"})
+    return JSONResponse(summary, headers={"Vary": "Accept"})
+
+
+HISTORY_PAYMENT_INFO = {
+    "x-payment-info": {
+        "price": {"mode": "fixed", "currency": "USD", "amount": archive.HISTORY_PRICE_USD.lstrip("$")},
+        "protocols": [{"x402": {}}],
+    }
+}
+
+
+@app.get(
+    "/history/{symbol}",
+    openapi_extra=HISTORY_PAYMENT_INFO,
+    responses={
+        200: {
+            "description": "Hourly readings in the range, oldest first. `drivers` is "
+            "each row's stored top 3 headlines (title, source, link, published, "
+            "score), or null for rows recorded before drivers were stored.",
+            "content": {"application/json": {"example": archive.HISTORY_EXAMPLE}},
+        },
+        400: {"description": "Invalid symbol or range. Not charged."},
+        402: {
+            "description": "Payment required. The x402 payment requirements are in "
+            "the PAYMENT-REQUIRED header and mirrored in the JSON body."
+        },
+        404: {"description": "Symbol not in the archive (see /archive). Not charged."},
+    },
+)
+async def get_history(
+    symbol: str,
+    start: Optional[str] = Query(None, description="ISO 8601 start (UTC if no offset). Default: end minus 7 days."),
+    end: Optional[str] = Query(None, description="ISO 8601 end, exclusive. Default: now. Max 30 days after start."),
+):
+    """x402 pay-per-call: hourly readings for one symbol. Errors are 4xx, and
+    the x402 middleware never settles a payment on a 4xx."""
+    try:
+        symbol = validate_symbol(symbol)
+        start_dt, end_dt = archive.resolve_range(start, end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not archive.symbol_in_archive(symbol):
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hourly readings for {symbol}. See /archive for the symbols that are logged.",
+        )
+    return JSONResponse(archive.history_payload(symbol, start_dt, end_dt))
 
 
 @app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200})

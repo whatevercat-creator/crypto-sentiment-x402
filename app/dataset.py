@@ -28,6 +28,7 @@ running instance -- see ALERTS.md's caveat, same reasoning applies here.
 
 import csv
 import io
+import json
 import os
 from datetime import datetime, timezone
 
@@ -152,6 +153,9 @@ def dataset_info():
         "total_rows": row["total_rows"] or 0,
         "note": "One row per symbol per calendar day, collected going forward "
         "from first_snapshot_date -- there is no backfilled history before that.",
+        "hourly": "The export also includes the hourly archive (one reading per logged "
+        "symbol per UTC hour, recorded live, never backfilled): `hourly_rows` in "
+        "format=json, or format=csv&table=hourly. Coverage: GET /archive.",
         "get_access": _access_checkouts(),
         # Same plan entries /billing/pricing returns, filtered to the
         # tiers that unlock /dataset/export.
@@ -168,14 +172,56 @@ def dataset_info():
     }
 
 
+HOURLY_CSV_FIELDS = [
+    "symbol", "observed_at", "average_compound", "sample_size", "fear_greed_value", "matcher", "drivers",
+]
+
+
+def _hourly_export_rows(symbol: str | None, since: str | None) -> list:
+    from app.archive import _parse_ts, hourly_rows
+
+    start = _parse_ts(since) if since else None
+    rows = hourly_rows(symbol.upper().strip() if symbol else None, start=start)
+    if symbol:
+        rows = [{"symbol": symbol.upper().strip(), **r} for r in rows]
+    return rows
+
+
 @router.get("/export", openapi_extra=API_KEY_SECURITY)
 def dataset_export(
     x_api_key: str = Header(..., alias="X-API-Key"),
     format: str = Query("csv", pattern="^(csv|json)$"),
     symbol: str | None = Query(None, description="Filter to one symbol, e.g. BTC"),
     since: str | None = Query(None, description="Only rows on/after this date, YYYY-MM-DD"),
+    table: str = Query(
+        "daily",
+        pattern="^(daily|hourly)$",
+        description="CSV only: which table to download. JSON always includes both "
+        "(`rows` daily, `hourly_rows` hourly).",
+    ),
 ):
+    """Daily snapshots plus the hourly archive (see /archive). Hourly rows
+    carry matcher and drivers (top 3 headlines as JSON; null before
+    2026-10-03)."""
     _require_dataset_access(x_api_key)
+    if since:
+        try:
+            datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(400, "since must be a date like 2026-10-01")
+
+    if table == "hourly" and format == "csv":
+        hourly = _hourly_export_rows(symbol, since)
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=HOURLY_CSV_FIELDS)
+        writer.writeheader()
+        for row in hourly:
+            writer.writerow({**row, "drivers": "" if row["drivers"] is None else json.dumps(row["drivers"])})
+        return PlainTextResponse(
+            buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=crypto_sentiment_hourly.csv"},
+        )
 
     query = "SELECT symbol, snapshot_date, label, average_compound, sample_size, fear_greed_value FROM sentiment_snapshots WHERE 1=1"
     params: list = []
@@ -191,7 +237,13 @@ def dataset_export(
         rows = [dict(r) for r in conn.execute(query, params).fetchall()]
 
     if format == "json":
-        return JSONResponse({"rows": rows, "count": len(rows)})
+        hourly = _hourly_export_rows(symbol, since)
+        return JSONResponse({
+            "rows": rows,
+            "count": len(rows),
+            "hourly_rows": hourly,
+            "hourly_count": len(hourly),
+        })
 
     buf = io.StringIO()
     writer = csv.DictWriter(
