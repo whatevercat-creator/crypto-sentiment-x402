@@ -174,6 +174,7 @@ def dataset_info():
 
 HOURLY_CSV_FIELDS = [
     "symbol", "observed_at", "average_compound", "sample_size", "fear_greed_value", "matcher", "drivers",
+    "unweighted_compound_72h", "effective_sample_size", "newest_headline_age_hours", "window",
 ]
 
 

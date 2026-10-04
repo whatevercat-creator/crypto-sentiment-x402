@@ -39,6 +39,7 @@ from pydantic import BaseModel, field_validator
 from app.billing import API_KEY_SECURITY, _db, TIERS, get_key_info
 from app.coins import validate_symbol
 from app.sentiment_service import compute_sentiment_payload
+from app.window import INSUFFICIENT_LABEL
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -250,6 +251,11 @@ async def _poll_once() -> None:
 
         new_label = payload["overall_sentiment"]["label"]
         new_compound = payload["overall_sentiment"]["average_compound"]
+        if new_label == INSUFFICIENT_LABEL:
+            # Too little recent news to call it (app/window.py): not a
+            # sentiment shift. Don't alert, and keep each watch's last real
+            # reading as the baseline so the next real one compares to it.
+            continue
 
         with _db() as conn:
             watches = conn.execute(

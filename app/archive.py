@@ -20,6 +20,7 @@ from typing import Optional
 from app.billing import _db
 from app.coins import MATCHER_CHANGED_ON, MATCHER_VERSION
 from app.hourly import HOURLY_SYMBOLS
+from app.window import HALF_LIFE_HOURS, MAX_AGE_HOURS, WINDOW_CHANGED_ON, WINDOW_VERSION
 
 HISTORY_PRICE_USD = os.environ.get("X402_HISTORY_PRICE_USD", "$0.05")
 DEFAULT_RANGE = timedelta(days=7)
@@ -38,7 +39,16 @@ MATCHER_NOTE = (
     f"matching (matcher null); later rows with whole-word matching (matcher "
     f"\"{MATCHER_VERSION}\"). Drivers (the top headlines behind a reading) are "
     f"stored from {MATCHER_CHANGED_ON} on; older rows have drivers null. "
-    "See /validation for the methodology note."
+    "See /validation for the methodology notes."
+)
+WINDOW_NOTE = (
+    f"average_compound depends on the row's window column. window "
+    f"\"{WINDOW_VERSION}\" (from {WINDOW_CHANGED_ON}): the recency-weighted score over "
+    f"headlines from the last {MAX_AGE_HOURS} hours (weight halves every "
+    f"{HALF_LIFE_HOURS} hours), the same number the live API returns; "
+    "unweighted_compound_72h, effective_sample_size and newest_headline_age_hours "
+    "are filled in. window null (earlier rows): the plain average over every item "
+    "the feeds held, however old, and those four columns are null."
 )
 
 
@@ -96,14 +106,16 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
 
     with _db() as conn:
         rows = conn.execute(
-            "SELECT symbol, observed_at, matcher, drivers FROM sentiment_hourly ORDER BY observed_at"
+            'SELECT symbol, observed_at, matcher, drivers, "window" FROM sentiment_hourly ORDER BY observed_at'
         ).fetchall()
 
     per_symbol: dict = {}
-    for symbol, observed_at, matcher, drivers in rows:
+    for symbol, observed_at, matcher, drivers, window in rows:
         entry = per_symbol.setdefault(
-            symbol, {"hours": set(), "rows": 0, "whole_word": 0, "with_drivers": 0, "first": None, "last": None}
+            symbol,
+            {"hours": set(), "rows": 0, "whole_word": 0, "with_drivers": 0, "windowed": 0, "first": None, "last": None},
         )
+        entry["windowed"] += window == WINDOW_VERSION
         observed = _parse_ts(observed_at)
         entry["hours"].add(_hour(observed))
         entry["rows"] += 1
@@ -125,15 +137,19 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
             "rows": e["rows"],
             "whole_word_rows": e["whole_word"],
             "rows_with_drivers": e["with_drivers"],
+            "window_rows": e["windowed"],
             "missing_hours": sum(g["hours"] for g in missing),
             "missing": missing,
         }
 
     return {
         "what": "Hourly news-sentiment readings per symbol: average_compound (-1 to 1), "
-        "sample_size, Fear & Greed value, matcher and the top 3 driving headlines.",
+        "sample_size, Fear & Greed value, matcher, the top 3 driving headlines and, "
+        "from 2026-10-04, the unweighted 72-hour score, effective sample size, "
+        "newest-headline age and window version.",
         "recording": RECORDING_NOTE,
         "methodology": MATCHER_NOTE,
+        "average_compound": WINDOW_NOTE,
         "symbols_logged_now": list(HOURLY_SYMBOLS),
         "symbols": symbols,
         "total_rows": sum(s["rows"] for s in symbols.values()),
@@ -174,7 +190,7 @@ def symbol_in_archive(symbol: str) -> bool:
 
 
 def _row_dict(row) -> dict:
-    observed_at, compound, sample_size, fng, matcher, drivers = row
+    observed_at, compound, sample_size, fng, matcher, drivers, unweighted, effective, newest_age, window = row
     return {
         "observed_at": observed_at,
         "average_compound": compound,
@@ -182,13 +198,18 @@ def _row_dict(row) -> dict:
         "fear_greed_value": fng,
         "matcher": matcher,
         "drivers": _drivers(drivers),
+        "unweighted_compound_72h": unweighted,
+        "effective_sample_size": effective,
+        "newest_headline_age_hours": newest_age,
+        "window": window,
     }
 
 
 def hourly_rows(symbol: Optional[str] = None, start: Optional[datetime] = None, end: Optional[datetime] = None) -> list:
     """Rows in observed_at order, drivers parsed; symbol included when not filtered."""
     sql = (
-        "SELECT symbol, observed_at, average_compound, sample_size, fear_greed_value, matcher, drivers "
+        "SELECT symbol, observed_at, average_compound, sample_size, fear_greed_value, matcher, drivers, "
+        'unweighted_compound_72h, effective_sample_size, newest_headline_age_hours, "window" '
         "FROM sentiment_hourly WHERE 1=1"
     )
     params: list = []
@@ -219,25 +240,30 @@ def history_payload(symbol: str, start: datetime, end: datetime) -> dict:
         "rows": rows,
         "recording": RECORDING_NOTE,
         "methodology": MATCHER_NOTE,
+        "average_compound": WINDOW_NOTE,
     }
 
 
 HISTORY_EXAMPLE = {
     "symbol": "BTC",
-    "start": "2026-10-03T00:00:00Z",
-    "end": "2026-10-03T02:00:00Z",
+    "start": "2026-10-04T00:00:00Z",
+    "end": "2026-10-04T02:00:00Z",
     "count": 2,
     "rows": [
         {
-            "observed_at": "2026-10-03T00:00:02.513104+00:00",
+            "observed_at": "2026-10-04T00:00:02.513104+00:00",
             "average_compound": 0.1123,
             "sample_size": 52,
             "fear_greed_value": 41,
-            "matcher": None,
+            "matcher": "whole_word",
             "drivers": None,
+            "unweighted_compound_72h": None,
+            "effective_sample_size": None,
+            "newest_headline_age_hours": None,
+            "window": None,
         },
         {
-            "observed_at": "2026-10-03T01:00:02.209871+00:00",
+            "observed_at": "2026-10-04T01:00:02.209871+00:00",
             "average_compound": 0.1388,
             "sample_size": 55,
             "fear_greed_value": 41,
@@ -247,14 +273,21 @@ HISTORY_EXAMPLE = {
                     "title": "Bitcoin ETFs log fifth straight day of inflows",
                     "source": "CoinDesk",
                     "link": "https://example.com/news/bitcoin-etf-inflows",
-                    "published": "2026-10-02T22:05:00Z",
+                    "published": "2026-10-03T22:05:00Z",
                     "score": 0.6249,
+                    "weight": 0.8963,
+                    "effect": 0.0221,
                 }
             ],
+            "unweighted_compound_72h": 0.1012,
+            "effective_sample_size": 31.7,
+            "newest_headline_age_hours": 1.2,
+            "window": WINDOW_VERSION,
         },
     ],
     "recording": RECORDING_NOTE,
     "methodology": MATCHER_NOTE,
+    "average_compound": WINDOW_NOTE,
 }
 
 
@@ -304,6 +337,7 @@ code{{background:var(--panel);padding:1px 5px;border-radius:4px;overflow-wrap:an
 {table}
 </table></div>
 <p class="muted">{escape(summary["methodology"])}</p>
+<p class="muted">{escape(summary["average_compound"])}</p>
 <h2>Get the readings</h2>
 <p><code>{escape(get["endpoint"])}</code>: {escape(get["price_usd"])} per call, paid with x402 in USDC on Base.
 Default range is the {escape(get["default_range"])}, up to {escape(get["max_range"])}.</p>

@@ -16,6 +16,10 @@ the watch's threshold (default `0.3`, override per-watch). The very first
 check after creating a watch only records a baseline — nothing fires until
 the check after that.
 
+A reading labelled `insufficient recent news` (too few headlines from the
+last 72 hours, see README) never fires an alert and doesn't replace the
+watch's baseline: the next real reading is compared with the last real one.
+
 ## How it works
 
 A background loop inside the same running app (started in `app/main.py`'s

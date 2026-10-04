@@ -33,6 +33,12 @@ app/validation.json's methodology_changes). Rows written since record
 `matcher = 'whole_word'`; --whole-word-only keeps just those, so the two
 methods are never mixed in one window.
 
+From 2026-10-04 rows also record `window = '72h-hl24'` (72-hour window,
+weight halving every 24 hours). --window-only keeps just those rows, and
+--score picks the column: "weighted" (average_compound, the API's score;
+default) or "unweighted" (unweighted_compound_72h, only on window rows):
+    python scripts/leadlag.py --window-only --score weighted
+
 Offline / testing: --prices-csv file with rows "iso_hour_start,close".
 Stdlib + httpx only (httpx is already in requirements.txt).
 """
@@ -64,23 +70,41 @@ def parse_ts(s: str) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False) -> dict:
-    """{hour_start: average_compound}. Readings land a few seconds after :00,
-    so flooring to the hour gives the reading AT that hour boundary.
+WINDOW_VERSION = "72h-hl24"  # app/window.py's WINDOW_VERSION
+SCORE_COLUMNS = {"weighted": "average_compound", "unweighted": "unweighted_compound_72h"}
+
+
+def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False,
+                   window_only=False, score="weighted") -> dict:
+    """{hour_start: score}. Readings land a few seconds after :00, so
+    flooring to the hour gives the reading AT that hour boundary.
 
     since: drop readings observed before this datetime.
     whole_word_only: keep only rows scored by the whole-word matcher
-    (matcher = 'whole_word'); a DB without that column has none."""
+    (matcher = 'whole_word'); a DB without that column has none.
+    window_only: keep only rows from the current window version.
+    score: "weighted" (average_compound) or "unweighted"
+    (unweighted_compound_72h, which only window rows have)."""
+    column = SCORE_COLUMNS[score]
     conn = sqlite3.connect(db_path)
-    sql = ("SELECT observed_at, average_compound FROM sentiment_hourly "
-           "WHERE symbol = ? AND average_compound IS NOT NULL")
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(sentiment_hourly)")}
+    needed = {column}
     if whole_word_only:
-        columns = {r[1] for r in conn.execute("PRAGMA table_info(sentiment_hourly)")}
-        if "matcher" not in columns:
-            conn.close()
-            return {}
+        needed.add("matcher")
+    if window_only:
+        needed.add("window")
+    if not needed <= columns:
+        conn.close()
+        return {}
+    sql = (f"SELECT observed_at, {column} FROM sentiment_hourly "
+           f"WHERE symbol = ? AND {column} IS NOT NULL")
+    params = [symbol]
+    if whole_word_only:
         sql += " AND matcher = 'whole_word'"
-    rows = conn.execute(sql + " ORDER BY observed_at", (symbol,)).fetchall()
+    if window_only:
+        sql += ' AND "window" = ?'
+        params.append(WINDOW_VERSION)
+    rows = conn.execute(sql + " ORDER BY observed_at", params).fetchall()
     conn.close()
     out = {}
     for ts, val in rows:
@@ -213,12 +237,17 @@ def main():
     ap.add_argument("--since", type=parse_ts, help="only readings observed at or after this ISO time")
     ap.add_argument("--whole-word-only", action="store_true",
                     help="only readings scored by the whole-word matcher (2026-10-03 on)")
+    ap.add_argument("--window-only", action="store_true",
+                    help=f"only readings from window version {WINDOW_VERSION} (2026-10-04 on)")
+    ap.add_argument("--score", choices=sorted(SCORE_COLUMNS), default="weighted",
+                    help="weighted = average_compound (default); unweighted = unweighted_compound_72h")
     a = ap.parse_args()
     sym = a.symbol.upper()
 
-    sent = load_sentiment(a.db, sym, since=a.since, whole_word_only=a.whole_word_only)
+    sent = load_sentiment(a.db, sym, since=a.since, whole_word_only=a.whole_word_only,
+                          window_only=a.window_only, score=a.score)
     if len(sent) < 2:
-        which = " whole-word" if a.whole_word_only else ""
+        which = (" window" if a.window_only else "") + (" whole-word" if a.whole_word_only else "")
         sys.exit(f"Only {len(sent)}{which} hourly rows for {sym} in {a.db}; nothing to analyze yet.")
     first, last = min(sent), max(sent)
     pad = timedelta(hours=MAX_OFFSET + 2)
@@ -240,7 +269,11 @@ def main():
             "window_start": first.isoformat(),
             "window_end": last.isoformat(),
             "paired_hours": res["paired_hours"],
-            "readings": "whole-word matcher only" if a.whole_word_only else "all matchers",
+            "readings": ", ".join(filter(None, [
+                f"window {WINDOW_VERSION} only" if a.window_only else "",
+                "whole-word matcher only" if a.whole_word_only else "",
+            ])) or "all rows",
+            "score": f"{a.score} ({SCORE_COLUMNS[a.score]})",
             "offsets": res["offsets"],
         }
         doc["updated"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()

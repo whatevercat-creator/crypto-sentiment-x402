@@ -1,6 +1,6 @@
 {
   "question": "Does the sentiment score lead, coincide with, or lag price?",
-  "method": "Hourly change in average_compound vs hourly log return (Coinbase SYMBOL-USD candles), cross-correlation at offsets -12h..+12h. Positive offset = price moves after sentiment (sentiment leads). Significance uses a Bonferroni-corrected threshold across all 25 offsets. Only readings scored by the whole-word headline matcher (2026-10-03 on) are used. Script: scripts/leadlag.py --whole-word-only.",
+  "method": "Hourly change in average_compound vs hourly log return (Coinbase SYMBOL-USD candles), cross-correlation at offsets -12h..+12h. Positive offset = price moves after sentiment (sentiment leads). Significance uses a Bonferroni-corrected threshold across all 25 offsets. Only readings from the 72-hour, recency-weighted window (window 72h-hl24, 2026-10-04 on) are used, with the weighted score. Script: scripts/leadlag.py --window-only --score weighted.",
   "honest_prior": "Scored from published news headlines, so the expectation is coincident-to-lagging. Results will be published here whatever they show.",
   "methodology_changes": [
     {
@@ -9,19 +9,28 @@
       "before": "Readings before 2026-10-03, and any made that day before the change was deployed, used substring matching, which counted words like \"whether\", \"Tether\" and \"together\" as ETH and \"solution\" as SOL. In a 224-headline sample on 2026-10-03, 16 of 47 ETH matches, 8 of 63 BTC, 8 of 15 SOL and 8 of 9 LINK were false.",
       "effect_on_validation": "Hourly readings now record which matcher produced them. Lead/lag results are computed only from whole-word readings (scripts/leadlag.py --whole-word-only), so the two methods are never mixed in one window. First results are expected 14 days after the change is deployed.",
       "applies_to": "Every score: on-demand calls, alerts, the hourly log and the daily dataset."
+    },
+    {
+      "date": "2026-10-04",
+      "change": "The score now covers only headlines published in the last 72 hours, and each headline's weight halves for every 24 hours of age. average_compound and the label use the weighted average; the unweighted 72-hour average, the effective sample size and the newest headline's age are returned alongside. With an effective sample size below 5 the label is \"insufficient recent news\". Headlines with no parseable publish date are left out (none of the 224 items fetched on 2026-10-04 lacked one). DL News was removed as a source. Method version: 72h-hl24.",
+      "before": "Before 2026-10-04 the score was a plain average over every item the feeds held, up to 30 per outlet, however old. On 2026-10-04 only about 1 in 7 matched headlines was from the last 24 hours, and DL News's feed was serving only items from April-May 2026 (8 of 55 BTC headlines), so months-old news was being scored as current. With nothing new published overnight, readings stayed identical for hours.",
+      "effect_on_validation": "Hourly rows record the window version (window = \"72h-hl24\"; null on earlier rows) and the unweighted 72-hour score. Lead/lag results use only window rows (scripts/leadlag.py --window-only --score weighted), so the old and new methods are never mixed.",
+      "applies_to": "Every score: on-demand calls, alerts, the hourly log and the daily dataset."
     }
   ],
-  "updated": "2026-10-03T00:00:00+00:00",
+  "updated": "2026-10-04T00:00:00+00:00",
   "symbols": {
     "BTC": {
       "status": "measuring",
       "logging_since": "2026-09-28T13:00:00+00:00",
-      "first_results_expected": "2026-10-17"
+      "first_results_expected": "2026-10-17",
+      "note": "2026-10-17 will be a first look at about 13 days of readings from the 2026-10-04 window change, not a final result."
     },
     "ETH": {
       "status": "measuring",
       "logging_since": "2026-09-28T13:00:00+00:00",
-      "first_results_expected": "2026-10-17"
+      "first_results_expected": "2026-10-17",
+      "note": "2026-10-17 will be a first look at about 13 days of readings from the 2026-10-04 window change, not a final result."
     }
   }
 }

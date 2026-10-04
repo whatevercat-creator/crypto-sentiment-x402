@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crypto-sentiment-x402-mcp"
 version = "0.1.0"
-description = "MCP server exposing real-time crypto sentiment (8 crypto news RSS feeds + the Fear & Greed Index) as a pay-per-call x402 tool on Base."
+description = "MCP server exposing real-time crypto sentiment (9 crypto news RSS feeds + the Fear & Greed Index) as a pay-per-call x402 tool on Base."
 readme = "MCP.md"
 requires-python = ">=3.10"
 license = "MIT"

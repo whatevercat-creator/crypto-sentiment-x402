@@ -79,12 +79,13 @@ async def crypto_sentiment(symbol: str) -> dict[str, Any]:
     """
     Get real-time aggregate crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL).
 
-    Pulls from 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt,
+    Pulls from 9 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt,
     Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The
-    Defiant, DL News) and the Fear & Greed Index, scored with VADER plus a
-    crypto slang lexicon.
-    Returns a bullish/bearish/neutral label, a compound score, and a
-    per-source breakdown.
+    Defiant) and the Fear & Greed Index, scored with VADER plus a crypto
+    slang lexicon over headlines from the last 72 hours, weighted toward the
+    newest.
+    Returns a bullish/bearish/neutral label (or "insufficient recent news"),
+    a compound score, a per-source breakdown and the headlines behind it.
 
     Each call pays this service's advertised x402 price in USDC on Base,
     charged to this MCP server's own configured wallet.

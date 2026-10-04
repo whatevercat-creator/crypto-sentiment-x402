@@ -5,13 +5,16 @@ subscriptions — agents discover it, get an HTTP 402, pay in USDC on Base,
 and get the data.
 
 **Sentiment sources (all free, no keys required):**
-- Crypto news RSS (10 outlets) — CoinDesk, Cointelegraph, Decrypt, Bitcoin
-  Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL
-  News
+- Crypto news RSS (9 outlets) — CoinDesk, Cointelegraph, Decrypt, Bitcoin
+  Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant
+  (DL News was removed on 2026-10-04: its feed served only April-May 2026 items)
 - Fear & Greed Index — alternative.me
 
 **Scoring:** VADER sentiment analysis, extended with a crypto slang lexicon
 (moon, rekt, rug, hodl, bullish/bearish, etc.) so slang isn't scored as neutral.
+Only headlines published in the last 72 hours count, and each headline's
+weight halves for every 24 hours of age (`app/window.py`). When the effective
+sample size is below 5, the label is `insufficient recent news`.
 
 ---
 
@@ -160,8 +163,14 @@ Example paid response:
     "label": "bullish",
     "positive_pct": 55.0,
     "negative_pct": 15.0,
-    "neutral_pct": 30.0
+    "neutral_pct": 30.0,
+    "unweighted_compound_72h": 0.17,
+    "effective_sample_size": 31.4,
+    "newest_headline_age_hours": 1.6,
+    "window": "72h-hl24"
   },
+  "drivers": [{ "title": "...", "source": "CoinDesk", "link": "https://...", "published": "...", "score": 0.62, "weight": 0.93, "effect": 0.03 }],
+  "drivers_summary": "3 of the top 5 headlines are positive, 2 are negative.",
   "breakdown": {
     "news": { "...": "..." },
     "fear_greed_index": { "value": 62, "classification": "Greed" }

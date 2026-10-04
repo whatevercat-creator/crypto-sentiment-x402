@@ -20,7 +20,9 @@ os.environ.setdefault("BILLING_DB_PATH", os.path.join(tempfile.mkdtemp(), "billi
 import httpx
 import pytest
 
-from app import hourly, main
+from datetime import datetime, timedelta, timezone
+
+from app import hourly, main, window
 from app import sentiment_service as svc
 from app.sentiment import score_text
 from app.sources import news
@@ -29,7 +31,13 @@ from app.sources.news import Headline
 SECRET = "SECRET-ARTICLE-BODY"
 
 
-def _h(title, desc="", source="CoinDesk", link=None, published=None):
+def _ago(hours):
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
+
+
+def _h(title, desc="", source="CoinDesk", link=None, published="recent"):
+    if published == "recent":
+        published = _ago(1)  # all the same age: weights equal, effect ranks like score
     return Headline(title=title, source=source, link=link, published=published, text=f"{title} {desc}")
 
 
@@ -50,7 +58,7 @@ HEADLINES = [
 
 
 def test_drivers_are_largest_absolute_scores_first_without_article_text():
-    drivers = svc.top_drivers(HEADLINES)
+    drivers = svc.top_drivers(window.in_window(HEADLINES))
     assert 0 < len(drivers) <= 5
     scores = [d["score"] for d in drivers]
     assert [abs(s) for s in scores] == sorted((abs(s) for s in scores), reverse=True)
@@ -58,21 +66,40 @@ def test_drivers_are_largest_absolute_scores_first_without_article_text():
         (abs(score_text(h.text[:500])) for h in HEADLINES if score_text(h.text[:500]) != 0), reverse=True
     )[:5]
     assert [abs(s) for s in scores] == [round(s, 4) for s in expected]
-    assert all(set(d) == {"title", "source", "link", "published", "score"} for d in drivers)
+    assert all(set(d) == {"title", "source", "link", "published", "score", "weight", "effect"} for d in drivers)
     assert SECRET not in json.dumps(drivers)
     assert all(d["score"] != 0 for d in drivers)
 
 
 def test_drivers_score_is_the_headlines_own_score():
-    [driver] = svc.top_drivers([_h("Bitcoin crash fears as traders panic", "more text")])
+    [driver] = svc.top_drivers(window.in_window([_h("Bitcoin crash fears as traders panic", "more text")]))
     assert driver["score"] == round(score_text("Bitcoin crash fears as traders panic more text"), 4)
     assert driver["title"] == "Bitcoin crash fears as traders panic"
+    assert driver["effect"] == driver["score"]  # one headline: it is the whole average
+
+
+def test_drivers_rank_by_weighted_effect_not_score_alone():
+    """An older headline with a stronger score can move the weighted score
+    less than a newer, milder one."""
+    old_strong = _h("Bitcoin exchange hacked in massive scam crash", published=_ago(70))
+    new_mild = _h("Bitcoin ETF approval is good news", published=_ago(0.5))
+    scored = window.in_window([old_strong, new_mild])
+    assert abs(scored[0].score) > abs(scored[1].score)
+    drivers = svc.top_drivers(scored)
+    assert [d["title"] for d in drivers] == [new_mild.title, old_strong.title]
+    total = sum(s.weight for s in scored)
+    for d, s_ in zip(drivers, [scored[1], scored[0]]):
+        assert d["effect"] == round(s_.weight * s_.score / total, 4)
+        assert d["weight"] == round(s_.weight, 4)
+    # Effects add up to the weighted score.
+    payload = svc.build_payload("BTC", [old_strong, new_mild], None)
+    assert abs(sum(d["effect"] for d in drivers) - payload["overall_sentiment"]["average_compound"]) < 1e-3
 
 
 @pytest.mark.parametrize(
     "scores,expected",
     [
-        ([], "No current headlines about BTC moved the score."),
+        ([], "No headlines about BTC from the last 72 hours moved the score."),
         ([-0.5], "The top headline is negative."),
         ([0.5, 0.3, 0.2], "All 3 top headlines are positive."),
         ([-0.6, -0.5, -0.4, 0.3, 0.2], "3 of the top 5 headlines are negative, 2 are positive."),
@@ -84,14 +111,16 @@ def test_drivers_summary(scores, expected):
     assert svc.drivers_summary("BTC", [{"score": s} for s in scores]) == expected
 
 
-def test_payload_has_drivers_and_unchanged_score():
-    payload = svc.build_payload("BTC", HEADLINES, None)
-    assert payload["drivers"] == svc.top_drivers(HEADLINES)
+def test_payload_has_drivers_and_score():
+    now = datetime.now(timezone.utc)
+    payload = svc.build_payload("BTC", HEADLINES, None, now)
+    assert payload["drivers"] == svc.top_drivers(window.in_window(HEADLINES, now))
     assert payload["drivers_summary"] == svc.drivers_summary("BTC", payload["drivers"])
-    # The overall score is still the average over every matched headline.
+    # Same age for every headline: weighted and unweighted averages agree.
     expected = sum(score_text(h.text[:500]) for h in HEADLINES) / len(HEADLINES)
-    assert payload["overall_sentiment"]["average_compound"] == round(expected, 4)
-    assert payload["overall_sentiment"]["sample_size"] == len(HEADLINES)
+    overall = payload["overall_sentiment"]
+    assert overall["average_compound"] == round(expected, 4) == overall["unweighted_compound_72h"]
+    assert overall["sample_size"] == len(HEADLINES)
 
 
 # --------------------------------------------------------------------------
@@ -160,7 +189,7 @@ def test_v1_route_returns_drivers(client, monkeypatch):
         main, "verify_and_charge_api_key", lambda key: {"tier": "pro", "calls_used": 1, "limit": 100}
     )
     body = client.get("/v1/sentiment/BTC", headers={"X-API-Key": "k"}).json()
-    assert body["drivers"] == svc.top_drivers(HEADLINES)
+    assert [d["title"] for d in body["drivers"]] == [d["title"] for d in svc.top_drivers(window.in_window(HEADLINES))]
     assert body["drivers_summary"]
     assert SECRET not in json.dumps(body)
 
@@ -243,5 +272,5 @@ def test_hourly_stores_top_three_drivers(monkeypatch, tmp_path):
     conn.close()
     assert rows[0][1] is None  # existing row stays empty
     stored = json.loads(rows[1][1])
-    assert stored == svc.top_drivers(HEADLINES)[:3]
+    assert [d["title"] for d in stored] == [d["title"] for d in svc.top_drivers(window.in_window(HEADLINES))[:3]]
     assert SECRET not in rows[1][1]

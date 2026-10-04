@@ -7,6 +7,7 @@ Run with: python -m pytest
 """
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 import sqlite3
@@ -118,7 +119,7 @@ def test_new_names_and_dataset_default_unchanged():
 
 
 # --------------------------------------------------------------------------
-# Feed fetch: one retry on 5xx (DL News 504s)
+# Feed fetch: one retry on 5xx (e.g. a 504 from a feed's gateway)
 # --------------------------------------------------------------------------
 
 RSS = b"""<rss><channel>
@@ -143,15 +144,15 @@ def test_feed_retried_once_after_5xx(monkeypatch):
 
     def handler(request):
         n = calls[str(request.url)] = calls.get(str(request.url), 0) + 1
-        if "dlnews" in request.url.host and n == 1:
+        if "theblock" in request.url.host and n == 1:
             return httpx.Response(504)
         return httpx.Response(200, content=RSS)
 
     _patch_client(monkeypatch, handler)
     items = asyncio.run(news.fetch_feed_items())
     assert len(items) == 3 * len(news.RSS_FEEDS)
-    assert calls["https://www.dlnews.com/arc/outboundfeeds/rss/"] == 2
-    assert all(n == 1 for url, n in calls.items() if "dlnews" not in url)
+    assert calls["https://www.theblock.co/rss.xml"] == 2
+    assert all(n == 1 for url, n in calls.items() if "theblock" not in url)
 
 
 def test_feed_skipped_after_second_5xx_and_not_retried_on_4xx(monkeypatch):
@@ -159,7 +160,7 @@ def test_feed_skipped_after_second_5xx_and_not_retried_on_4xx(monkeypatch):
 
     def handler(request):
         calls[request.url.host] = calls.get(request.url.host, 0) + 1
-        if "dlnews" in request.url.host:
+        if "theblock" in request.url.host:
             return httpx.Response(504)
         if "decrypt" in request.url.host:
             return httpx.Response(404)
@@ -168,11 +169,12 @@ def test_feed_skipped_after_second_5xx_and_not_retried_on_4xx(monkeypatch):
     _patch_client(monkeypatch, handler)
     items = asyncio.run(news.fetch_feed_items())
     assert len(items) == 3 * (len(news.RSS_FEEDS) - 2)
-    assert calls["www.dlnews.com"] == 2 and calls["decrypt.co"] == 1
+    assert calls["www.theblock.co"] == 2 and calls["decrypt.co"] == 1
 
 
 def _h(text):
-    return news.Headline(title=text, source="Test", link=None, published=None, text=text)
+    published = datetime.now(timezone.utc).isoformat()
+    return news.Headline(title=text, source="Test", link=None, published=published, text=text)
 
 
 def test_select_headlines_whole_word():
@@ -304,10 +306,9 @@ def test_methodology_note_on_validation_and_transparency():
 
     with open(os.path.join(os.path.dirname(main.__file__), "validation.json")) as f:
         doc = json.load(f)
-    [note] = doc["methodology_changes"]
+    note = doc["methodology_changes"][0]
     assert note["date"] == "2026-10-03"
     assert "substring" in note["before"]
-    assert "--whole-word-only" in doc["method"]
 
     transparency = asyncio.run(main.transparency())
     assert transparency["methodology_changes"] == doc["methodology_changes"]

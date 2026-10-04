@@ -78,8 +78,9 @@ def _validation_html(validation: dict) -> str:
         else:
             expected = entry.get("first_results_expected")
             when = f" First results expected {escape(expected)}." if expected else ""
+            note = f" {escape(entry['note'])}" if entry.get("note") else ""
             rows.append(
-                f"<li><strong>{escape(symbol)}</strong>: still measuring on hourly data.{when}</li>"
+                f"<li><strong>{escape(symbol)}</strong>: still measuring on hourly data.{when}{note}</li>"
             )
     if not rows:
         rows.append(f"<li>{escape(validation.get('detail', 'Measuring on hourly data.'))}</li>")
@@ -201,11 +202,13 @@ def render_home(
 <h2>How it works</h2>
 <p>For each ticker, the API pulls recent headlines from {len(outlets)} crypto news outlets
 ({escape(", ".join(outlets))}) plus the Fear &amp; Greed Index, and scores them with VADER
-sentiment analysis plus a crypto slang lexicon.</p>
+sentiment analysis plus a crypto slang lexicon. Only headlines from the last 72 hours count, and
+newer ones count more: a headline's weight halves for every 24 hours of age.</p>
 <p class="tags">You get back a
 <span class="bull">bullish</span><span class="bear">bearish</span><span class="neu">neutral</span>
-label, a numeric score, a per-source breakdown, and the up to 5 headlines that moved the
-score most (titles and links only).</p>
+label, a numeric score, how many headlines it rests on, and the up to 5 headlines that moved the
+score most (titles and links only). When there's too little recent news to call it, the label
+says &ldquo;insufficient recent news&rdquo; instead.</p>
 
 <h2>Pricing</h2>
 <div class="price">

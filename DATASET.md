@@ -21,6 +21,10 @@ row -- label, compound score, sample size, Fear & Greed value -- if it
 hasn't already recorded one for that symbol today. Restarting the app
 doesn't create duplicate rows for the same day.
 
+From 2026-10-04 each reading uses the 72-hour, recency-weighted window (see
+README), and `label` can be `insufficient recent news` when too few recent
+headlines mention the coin. Earlier rows averaged every item the feeds held.
+
 **Same single-instance caveat as alerts** (see ALERTS.md) -- this assumes
 one running instance.
 
@@ -77,7 +81,12 @@ curl "$APP_BASE_URL/dataset/export?format=csv" -H "X-API-Key: csk_..." -o histor
 Separately from the daily table above, `app/hourly.py` logs one reading per
 symbol at the top of every UTC hour into its own `sentiment_hourly` table
 (symbol, exact UTC `observed_at`, `average_compound`, `sample_size`,
-`fear_greed_value`, `matcher`). All symbols are scored from one fetch of the
+`fear_greed_value`, `matcher`, `drivers`, and from 2026-10-04
+`unweighted_compound_72h`, `effective_sample_size`, `newest_headline_age_hours`
+and `window`). `average_compound` holds the recency-weighted 72-hour score on
+rows whose `window` is `72h-hl24` (the same number the API returns) and the old
+all-items average on earlier rows, where `window` and the other three are NULL;
+`scripts/leadlag.py --window-only` uses only the former. All symbols are scored from one fetch of the
 feeds per hour, so adding symbols adds no feed requests. `matcher` is
 `whole_word` for readings made with the 2026-10-03 headline matcher and NULL
 for earlier, substring-matched rows; `scripts/leadlag.py --whole-word-only`
@@ -93,4 +102,11 @@ lists symbols, first reading, row counts and missing hours; `GET
 and never backfilled. `HOURLY_SYMBOLS` (default `BTC,ETH`;
 `render.yaml` sets `BTC,ETH,XRP,SOL`) picks the symbols and `HOURLY_ENABLED=0` turns it off. Missed hours are left as
 gaps, and `fear_greed_value` only changes once a day since the index itself
-is daily. About 1.8 MB/year for two symbols.
+is daily. With drivers stored, a row is about 1.1 KB, so about 40 MB/year for
+four symbols.
+
+Each hour the logger also stores every fetched headline that matches any
+supported coin in `sentiment_headlines` (one row per link: title, source,
+link, published, first_seen, its own score and the symbols it matched; never
+article text), so later method changes can be recomputed from stored data.
+At about 35-80 new matched headlines a day that's roughly 5-12 MB/year.

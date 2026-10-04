@@ -43,6 +43,7 @@ from fastapi import APIRouter, HTTPException, Request
 from app.billing import _db, get_key_info
 from app.coins import COIN_NAMES, validate_symbol
 from app.sentiment_service import compute_sentiment_payload
+from app.window import INSUFFICIENT_LABEL
 from app.alerts import _deliver
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -128,10 +129,10 @@ async def tradingview_webhook(api_key: str, request: Request):
 
     label = sentiment_payload["overall_sentiment"]["label"]
     compound = sentiment_payload["overall_sentiment"]["average_compound"]
-    message = (
-        f"\U0001F4C8 TradingView alert fired for {symbol} -- current sentiment: "
-        f"{label} ({compound:.2f})"
-    )
+    # With too little recent news the score isn't meaningful, so the
+    # message gives the label alone.
+    reading = label if label == INSUFFICIENT_LABEL else f"{label} ({compound:.2f})"
+    message = f"\U0001F4C8 TradingView alert fired for {symbol} -- current sentiment: {reading}"
     event_payload = {
         "source": "tradingview",
         "symbol": symbol,

@@ -1,8 +1,9 @@
 """
 Crypto Sentiment API — x402-gated, with an optional Stripe-subscription lane
 
-Free-source aggregate crypto sentiment (10 crypto news RSS outlets + Fear &
-Greed Index), scored with VADER + a crypto slang lexicon.
+Free-source aggregate crypto sentiment (9 crypto news RSS outlets + Fear &
+Greed Index), scored with VADER + a crypto slang lexicon over the last 72
+hours of headlines, weighted toward the newest (app/window.py).
 
 Two ways to buy it:
   - GET /sentiment/{symbol}     -- x402 pay-per-call in USDC on Base (agents)
@@ -69,8 +70,15 @@ from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router, RAPIDAPI_SCHEME
 from app.integrations import router as integrations_router
 from app.coins import validate_symbol
-from app.sentiment_service import compute_sentiment_payload
-from app.sources.news import NEWS_OUTLETS
+from app.sentiment_service import SOURCES, compute_sentiment_payload
+from app.sources.news import NEWS_OUTLETS, feed_health
+from app.window import (
+    HALF_LIFE_HOURS,
+    INSUFFICIENT_LABEL,
+    MAX_AGE_HOURS,
+    MIN_EFFECTIVE_SAMPLE,
+    WINDOW_VERSION,
+)
 from app.sweep import sweep_loop
 
 PAY_TO_ADDRESS = os.environ.get("PAY_TO_ADDRESS")
@@ -101,6 +109,11 @@ EXAMPLE_RESPONSE = {
     "overall_sentiment": {
         "label": "bullish",
         "average_compound": 0.21,
+        "sample_size": 38,
+        "unweighted_compound_72h": 0.17,
+        "effective_sample_size": 29.4,
+        "newest_headline_age_hours": 1.6,
+        "window": "72h-hl24",
     },
     "drivers": [
         {
@@ -109,6 +122,8 @@ EXAMPLE_RESPONSE = {
             "link": "https://example.com/news/bitcoin-etf-inflows",
             "published": "2026-10-03T14:05:00Z",
             "score": 0.6249,
+            "weight": 0.9288,
+            "effect": 0.0263,
         },
         {
             "title": "Exchange hack drains $40M as bitcoin dips",
@@ -116,6 +131,8 @@ EXAMPLE_RESPONSE = {
             "link": "https://example.com/news/exchange-hack",
             "published": "2026-10-03T12:40:00Z",
             "score": -0.5719,
+            "weight": 0.8572,
+            "effect": -0.0222,
         },
         {
             "title": "Bitcoin miners report record hashrate",
@@ -123,6 +140,8 @@ EXAMPLE_RESPONSE = {
             "link": "https://example.com/news/record-hashrate",
             "published": "2026-10-03T11:15:00Z",
             "score": 0.4404,
+            "weight": 0.8087,
+            "effect": 0.0161,
         },
     ],
     "drivers_summary": "2 of the top 3 headlines are positive, 1 is negative.",
@@ -140,6 +159,8 @@ DRIVERS_SCHEMA = {
             "link": _NULLABLE_STRING,
             "published": _NULLABLE_STRING,
             "score": {"type": "number"},
+            "weight": {"type": "number"},
+            "effect": {"type": "number"},
         },
         "required": ["title", "source", "link", "published", "score"],
     },
@@ -170,7 +191,18 @@ SENTIMENT_DISCOVERY = declare_discovery_extension(
             "properties": {
                 "symbol": {"type": "string"},
                 "name": {"type": "string"},
-                "overall_sentiment": {"type": "object"},
+                "overall_sentiment": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "enum": ["bullish", "bearish", "neutral", INSUFFICIENT_LABEL]},
+                        "average_compound": {"type": "number"},
+                        "sample_size": {"type": "integer"},
+                        "unweighted_compound_72h": {"type": "number"},
+                        "effective_sample_size": {"type": "number"},
+                        "newest_headline_age_hours": {"type": ["number", "null"]},
+                        "window": {"type": "string"},
+                    },
+                },
                 "drivers": DRIVERS_SCHEMA,
                 "drivers_summary": {"type": "string"},
             },
@@ -226,6 +258,10 @@ HISTORY_DISCOVERY = declare_discovery_extension(
                             "fear_greed_value": {"type": ["integer", "null"]},
                             "matcher": _NULLABLE_STRING,
                             "drivers": {"anyOf": [{"type": "null"}, DRIVERS_SCHEMA]},
+                            "unweighted_compound_72h": {"type": ["number", "null"]},
+                            "effective_sample_size": {"type": ["number", "null"]},
+                            "newest_headline_age_hours": {"type": ["number", "null"]},
+                            "window": _NULLABLE_STRING,
                         },
                         "required": ["observed_at", "average_compound", "matcher", "drivers"],
                     },
@@ -241,6 +277,16 @@ HISTORY_DISCOVERY["bazaar"]["info"]["input"].update(
     pathParams={"symbol": archive.HISTORY_EXAMPLE["symbol"]},
 )
 
+OUTLET_LIST = ", ".join(NEWS_OUTLETS)
+SENTIMENT_ROUTE_DESCRIPTION = (
+    "Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL) from "
+    f"{len(NEWS_OUTLETS)} crypto news RSS outlets ({OUTLET_LIST}) and the Fear & Greed "
+    "Index. Headlines from the last 72h, weighted toward the newest. Returns a "
+    "bullish/bearish/neutral label (or 'insufficient recent news'), score, sample "
+    "size and the top 5 headlines behind it (title, link) as JSON. Path param: "
+    "symbol, e.g. /sentiment/BTC."
+)
+
 routes = {
     "GET /sentiment/:symbol": RouteConfig(
         accepts=[
@@ -251,7 +297,7 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description="Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL). Aggregates 10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL News) and the Fear & Greed Index. Returns a bullish/bearish/neutral label, score, per-source breakdown and the top 5 headlines behind it (title, link) as JSON. For trading bots and research agents. Path param: symbol, e.g. /sentiment/BTC.",
+        description=SENTIMENT_ROUTE_DESCRIPTION,
         mime_type="application/json",
         extensions=SENTIMENT_DISCOVERY,
     ),
@@ -380,8 +426,10 @@ X_GUIDANCE = (
      "402 with the payment requirements in accepts[], and the same request "
      "retried with a valid payment returns the result. The response is JSON with "
      "a bullish/bearish/neutral label, a numeric sentiment score, and a "
-     "per-source breakdown built from 10 crypto news outlets plus the Fear & "
-     "Greed Index. Use it as one input for market research or trading agents. "
+     f"per-source breakdown built from {len(NEWS_OUTLETS)} crypto news outlets plus the Fear & "
+     "Greed Index. The score covers headlines from the last 72 hours, weighted "
+     "toward the newest; with too little recent news the label is \"insufficient "
+     "recent news\" instead. Use it as one input for market research or trading agents. "
      "It measures news sentiment only; it is not a price prediction or "
      "financial advice. Past hourly readings: GET /history/{symbol} with optional "
      f"ISO 8601 start/end (default last 7 days, max 30), {archive.HISTORY_PRICE_USD} "
@@ -568,17 +616,26 @@ What exists (symbols, first reading, row counts, missing hours): GET /archive
 - Signal validation (does the score lead or lag price?): /validation
 
 ## Response
-JSON with `overall_sentiment` (label: bullish/bearish/neutral, and
-average_compound from -1 to 1), a per-source `breakdown`, and `drivers`: up
-to 5 headlines that moved the score most, largest first, each with title,
-source, link, published (ISO 8601 UTC) and its own score. Titles and links
-only, never article text. `drivers_summary` is one plain line such as
-"3 of the top 5 headlines are negative, 2 are positive."
+JSON with `overall_sentiment`, a per-source `breakdown`, and `drivers`.
+The score covers headlines published in the last {MAX_AGE_HOURS} hours, and each
+headline's weight halves for every {HALF_LIFE_HOURS} hours of age.
+- overall_sentiment.average_compound: the weighted score, -1 to 1
+- overall_sentiment.label: bullish, bearish or neutral, or "{INSUFFICIENT_LABEL}"
+  when the effective sample size is below {MIN_EFFECTIVE_SAMPLE}
+- overall_sentiment.unweighted_compound_72h: the plain 72-hour average
+- overall_sentiment.effective_sample_size: how many full-weight headlines the
+  weighted sample is worth
+- overall_sentiment.newest_headline_age_hours and overall_sentiment.window
+  (method version, currently "{WINDOW_VERSION}")
+- drivers: up to 5 headlines that moved the score most (largest weighted effect
+  first), each with title, source, link, published (ISO 8601 UTC), its own
+  score, weight and effect. Titles and links only, never article text.
+- drivers_summary: one plain line such as "3 of the top 5 headlines are
+  negative, 2 are positive."
 
 ## Data sources
-10 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
-Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant, DL
-News) and the Fear & Greed Index (alternative.me). Scored with VADER
+{len(NEWS_OUTLETS)} crypto news RSS outlets ({OUTLET_LIST}) and the Fear & Greed
+Index (alternative.me). Scored with VADER
 sentiment analysis plus a crypto slang lexicon. Reddit is intentionally not
 used -- see /transparency.
 
@@ -636,19 +693,22 @@ async def transparency():
             "feeds and the Fear & Greed Index, scored with VADER sentiment "
             "analysis plus a crypto slang lexicon."
         ),
-        "data_sources": [
-            "coindesk.com RSS",
-            "cointelegraph.com RSS",
-            "decrypt.co RSS",
-            "bitcoinmagazine.com RSS",
-            "theblock.co RSS",
-            "cryptoslate.com RSS",
-            "newsbtc.com RSS",
-            "cryptopotato.com RSS",
-            "thedefiant.io RSS",
-            "dlnews.com RSS",
-            "alternative.me Fear & Greed Index",
-        ],
+        "data_sources": list(SOURCES),
+        "scoring_window": (
+            f"Only headlines published in the last {MAX_AGE_HOURS} hours count; ones "
+            f"without a parseable publish date are left out. Each headline's weight "
+            f"halves for every {HALF_LIFE_HOURS} hours of age. With an effective sample "
+            f"size below {MIN_EFFECTIVE_SAMPLE} the label is \"{INSUFFICIENT_LABEL}\". "
+            f"Method version: {WINDOW_VERSION}."
+        ),
+        "feed_health": feed_health(),
+        "sources_removed": {
+            "dlnews.com RSS": (
+                "Removed 2026-10-04: the feed served only items from April-May 2026 "
+                "under a current build date, so months-old headlines were being "
+                "scored as current news."
+            ),
+        },
         "sources_intentionally_not_used": {
             "reddit": (
                 "Removed -- Reddit's Responsible Builder Policy prohibits "
@@ -678,10 +738,15 @@ async def transparency():
 
 
 SENTIMENT_200 = {
-    "description": "Sentiment for the symbol. `drivers` lists up to 5 headlines that "
-    "moved the score most (title, source, link, published time and each one's own "
-    "score), largest first; titles and links only, never article text. "
-    "`drivers_summary` is one plain line about them.",
+    "description": "Sentiment for the symbol over headlines from the last 72 hours, "
+    "each weighted by age (weight halves every 24 hours). `overall_sentiment` has "
+    "the weighted score (average_compound), the label (bullish/bearish/neutral, or "
+    "\"insufficient recent news\" below an effective sample size of 5), "
+    "unweighted_compound_72h, effective_sample_size, newest_headline_age_hours and "
+    "window. `drivers` lists up to 5 headlines that moved the score most (title, "
+    "source, link, published time, own score, weight and effect), largest effect "
+    "first; titles and links only, never article text. `drivers_summary` is one "
+    "plain line about them.",
     "content": {"application/json": {"example": EXAMPLE_RESPONSE}},
 }
 
@@ -746,7 +811,10 @@ HISTORY_PAYMENT_INFO = {
         200: {
             "description": "Hourly readings in the range, oldest first. `drivers` is "
             "each row's stored top 3 headlines (title, source, link, published, "
-            "score), or null for rows recorded before drivers were stored.",
+            "score), or null for rows recorded before drivers were stored. "
+            "average_compound is the recency-weighted 72-hour score on rows whose "
+            "`window` is set (2026-10-04 on) and the old all-items average on rows "
+            "where it's null; the other window fields are null on those rows.",
             "content": {"application/json": {"example": archive.HISTORY_EXAMPLE}},
         },
         400: {"description": "Invalid symbol or range. Not charged."},
