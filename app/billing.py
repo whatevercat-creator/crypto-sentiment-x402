@@ -473,6 +473,55 @@ async def stripe_webhook(request: Request):
     return {"received": True}
 
 
+def _check_api_key(conn, api_key: str) -> tuple:
+    """Validate an API key, reset its usage counter on a new calendar month
+    and enforce the tier's quota. Raises HTTPException on any failure.
+    Returns (tier, calls_used, limit)."""
+    row = conn.execute(
+        "SELECT * FROM api_keys WHERE api_key = ?", (api_key,)
+    ).fetchone()
+
+    if not row:
+        raise HTTPException(
+            401,
+            "Invalid API key. Get one at POST /billing/signup-free "
+            "or POST /billing/checkout/{tier}.",
+        )
+    if row["status"] != "active":
+        raise HTTPException(403, "This subscription is not active.")
+    if row["tier"] not in TIERS:
+        raise HTTPException(500, "Unknown tier on this key -- contact support.")
+
+    period_start = datetime.fromisoformat(row["period_start"])
+    now = datetime.now(timezone.utc)
+    calls_used = row["period_calls_used"]
+
+    if (now.year, now.month) != (period_start.year, period_start.month):
+        calls_used = 0
+        conn.execute(
+            "UPDATE api_keys SET period_calls_used = 0, period_start = ? "
+            "WHERE api_key = ?",
+            (_now_iso(), api_key),
+        )
+
+    limit = TIERS[row["tier"]]["limit"]
+    if calls_used >= limit:
+        raise HTTPException(
+            429,
+            f"Monthly quota exceeded ({limit} calls on the '{row['tier']}' tier). "
+            f"Upgrade with POST /billing/checkout/{{tier}}, or it resets next "
+            f"calendar month.",
+        )
+    return row["tier"], calls_used, limit
+
+
+def verify_api_key(api_key: str) -> None:
+    """The checks verify_and_charge_api_key makes (401, 403, 429), without
+    recording a call. Run it before doing any work for the key."""
+    with _db() as conn:
+        _check_api_key(conn, api_key)
+
+
 def verify_and_charge_api_key(api_key: str) -> dict:
     """
     Validate an API key, reset its usage counter on a new calendar month,
@@ -480,49 +529,13 @@ def verify_and_charge_api_key(api_key: str) -> dict:
     Raises HTTPException on any failure. Returns usage info on success.
     """
     with _db() as conn:
-        row = conn.execute(
-            "SELECT * FROM api_keys WHERE api_key = ?", (api_key,)
-        ).fetchone()
-
-        if not row:
-            raise HTTPException(
-                401,
-                "Invalid API key. Get one at POST /billing/signup-free "
-                "or POST /billing/checkout/{tier}.",
-            )
-        if row["status"] != "active":
-            raise HTTPException(403, "This subscription is not active.")
-        if row["tier"] not in TIERS:
-            raise HTTPException(500, "Unknown tier on this key -- contact support.")
-
-        period_start = datetime.fromisoformat(row["period_start"])
-        now = datetime.now(timezone.utc)
-        calls_used = row["period_calls_used"]
-
-        if (now.year, now.month) != (period_start.year, period_start.month):
-            calls_used = 0
-            conn.execute(
-                "UPDATE api_keys SET period_calls_used = 0, period_start = ? "
-                "WHERE api_key = ?",
-                (_now_iso(), api_key),
-            )
-
-        limit = TIERS[row["tier"]]["limit"]
-        if calls_used >= limit:
-            raise HTTPException(
-                429,
-                f"Monthly quota exceeded ({limit} calls on the '{row['tier']}' tier). "
-                f"Upgrade with POST /billing/checkout/{{tier}}, or it resets next "
-                f"calendar month.",
-            )
-
+        tier, calls_used, limit = _check_api_key(conn, api_key)
         conn.execute(
             "UPDATE api_keys SET period_calls_used = period_calls_used + 1 "
             "WHERE api_key = ?",
             (api_key,),
         )
-
-        return {"tier": row["tier"], "calls_used": calls_used + 1, "limit": limit}
+        return {"tier": tier, "calls_used": calls_used + 1, "limit": limit}
 
 
 def get_key_info(api_key: str) -> dict:

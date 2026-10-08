@@ -38,6 +38,40 @@ def require_supported_symbol(symbol: str, lane: str) -> str:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+INSUFFICIENT_NEWS_RESPONSE = {
+    422: {
+        "description": "Not enough recent news for this coin to give a reliable "
+        f"reading (effective sample size below {window.MIN_EFFECTIVE_SAMPLE} in the "
+        f"last {window.MAX_AGE_HOURS} hours). No reading is returned. Not charged."
+    }
+}
+
+
+def refuse_if_insufficient(payload: dict, lane: str) -> None:
+    """Raise a 422 (and log one "insufficient_news_refused" JSON line) when
+    `payload` carries window.INSUFFICIENT_LABEL: we don't charge for answers
+    we don't have. Call it after computing the reading and before anything
+    is counted; the x402 middleware never settles a payment on a 4xx."""
+    overall = payload.get("overall_sentiment") or {}
+    if overall.get("label") != window.INSUFFICIENT_LABEL:
+        return
+    symbol = payload["symbol"]
+    effective_n = overall.get("effective_sample_size") or 0.0
+    logger.info(json.dumps({
+        "event": "insufficient_news_refused",
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "symbol": symbol,
+        "lane": lane,
+        "effective_n": effective_n,
+    }))
+    raise HTTPException(
+        status_code=422,
+        detail=f"Not enough recent news for {symbol} in the last {window.MAX_AGE_HOURS} hours "
+        f"to give a reliable reading (effective sample size {effective_n:.1f}, need "
+        f"{window.MIN_EFFECTIVE_SAMPLE}). Not charged. Try BTC or ETH, or {symbol} again later.",
+    )
+
 SOURCES = [
     "coindesk.com RSS",
     "cointelegraph.com RSS",

@@ -185,6 +185,7 @@ def client(monkeypatch):
 
 
 def test_v1_route_returns_drivers(client, monkeypatch):
+    monkeypatch.setattr(main, "verify_api_key", lambda key: None)
     monkeypatch.setattr(
         main, "verify_and_charge_api_key", lambda key: {"tier": "pro", "calls_used": 1, "limit": 100}
     )

@@ -55,6 +55,7 @@ from x402.extensions.bazaar import (
 from app.billing import (
     router as billing_router,
     init_db,
+    verify_api_key,
     verify_and_charge_api_key,
     pricing as billing_pricing,
     TIERS,
@@ -70,7 +71,13 @@ from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router, RAPIDAPI_SCHEME
 from app.integrations import router as integrations_router
 from app.coins import COIN_NAMES, validate_symbol
-from app.sentiment_service import SOURCES, compute_sentiment_payload, require_supported_symbol
+from app.sentiment_service import (
+    INSUFFICIENT_NEWS_RESPONSE,
+    SOURCES,
+    compute_sentiment_payload,
+    refuse_if_insufficient,
+    require_supported_symbol,
+)
 from app.sources.news import NEWS_OUTLETS, feed_health
 from app.window import (
     HALF_LIFE_HOURS,
@@ -598,6 +605,9 @@ Network: Base ({NETWORK_MODE}), x402 scheme "exact"
 Example: GET /sentiment/BTC
 Supported symbols: {", ".join(COIN_NAMES)}
 Any other symbol (a stock ticker, say) gets HTTP 404 and is not charged.
+Too little recent news for a supported coin to give a reliable reading
+(effective sample size below {MIN_EFFECTIVE_SAMPLE} in the last {MAX_AGE_HOURS} hours): HTTP 422
+with no reading, and not charged.
 
 ## Hourly archive (x402)
 GET {PUBLIC_BASE_URL}/history/{{symbol}}?start=<ISO 8601>&end=<ISO 8601>
@@ -612,6 +622,8 @@ What exists (symbols, first reading, row counts, missing hours): GET /archive
 - GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota
   (see /billing/pricing)
 - GET /rapidapi/sentiment/{{symbol}} -- RapidAPI-proxied traffic only
+Both answer the not-enough-recent-news case with the same HTTP 422; on
+/v1 it doesn't count against the key's quota.
 
 ## Discovery
 - OpenAPI spec: /openapi.json
@@ -625,8 +637,9 @@ JSON with `overall_sentiment`, a per-source `breakdown`, and `drivers`.
 The score covers headlines published in the last {MAX_AGE_HOURS} hours, and each
 headline's weight halves for every {HALF_LIFE_HOURS} hours of age.
 - overall_sentiment.average_compound: the weighted score, -1 to 1
-- overall_sentiment.label: bullish, bearish or neutral, or "{INSUFFICIENT_LABEL}"
-  when the effective sample size is below {MIN_EFFECTIVE_SAMPLE}
+- overall_sentiment.label: bullish, bearish or neutral. When the effective
+  sample size is below {MIN_EFFECTIVE_SAMPLE} ("{INSUFFICIENT_LABEL}") the sentiment routes
+  return HTTP 422 with no reading instead, and don't charge
 - overall_sentiment.unweighted_compound_72h: the plain 72-hour average
 - overall_sentiment.effective_sample_size: how many full-weight headlines the
   weighted sample is worth
@@ -781,6 +794,7 @@ SENTIMENT_PAYMENT_INFO = {
     responses={
         200: SENTIMENT_200,
         **SENTIMENT_4XX,
+        **INSUFFICIENT_NEWS_RESPONSE,
         402: {
             "description": "Payment required. The x402 payment requirements are in "
             "the PAYMENT-REQUIRED header and mirrored in the JSON body."
@@ -794,13 +808,15 @@ async def get_sentiment(symbol: str):
     the score most (title, source, link, published, score; never article
     text), and `drivers_summary`, one plain line about them.
 
-    A symbol this API doesn't score is a 404, and the x402 middleware never
-    settles a payment on a 4xx, so nobody pays for a reading they don't get."""
+    A symbol this API doesn't score is a 404, too little recent news for a
+    reliable reading is a 422, and the x402 middleware never settles a
+    payment on a 4xx, so nobody pays for a reading they don't get."""
     symbol = require_supported_symbol(symbol, "x402")
     try:
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    refuse_if_insufficient(payload, "x402")
     return JSONResponse(payload)
 
 
@@ -864,19 +880,23 @@ async def get_history(
     return JSONResponse(archive.history_payload(symbol, start_dt, end_dt))
 
 
-@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200, **SENTIMENT_4XX})
+@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200, **SENTIMENT_4XX, **INSUFFICIENT_NEWS_RESPONSE})
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
     """Stripe-subscription lane -- gated by an API key issued via /billing/*.
 
     Same response as /sentiment/{symbol}, including `drivers` and
     `drivers_summary`, plus `_billing` usage. An unsupported symbol is
-    rejected before the call is counted against the key's quota."""
+    rejected before the call is counted against the key's quota. The key is
+    checked before any work, but a call is only counted once there is a
+    real reading (too little recent news is a 422 and isn't counted)."""
     symbol = require_supported_symbol(symbol, "v1")
-    usage = verify_and_charge_api_key(x_api_key)
+    verify_api_key(x_api_key)
     try:
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    refuse_if_insufficient(payload, "v1")
+    usage = verify_and_charge_api_key(x_api_key)
     payload["_billing"] = {
         "tier": usage["tier"],
         "calls_used_this_period": usage["calls_used"],

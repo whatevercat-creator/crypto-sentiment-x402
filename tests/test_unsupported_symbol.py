@@ -82,6 +82,7 @@ def test_unpaid_request_still_gets_the_402_challenge(client):  # noqa: F811
 
 def test_subscription_call_for_stock_is_not_counted(client, monkeypatch):  # noqa: F811
     charged = []
+    monkeypatch.setattr(main, "verify_api_key", lambda key: charged.append(key))
     monkeypatch.setattr(main, "verify_and_charge_api_key", lambda key: charged.append(key))
     r = client.get("/v1/sentiment/AAPL", headers={"X-API-Key": "k"})
     assert r.status_code == 404 and charged == []

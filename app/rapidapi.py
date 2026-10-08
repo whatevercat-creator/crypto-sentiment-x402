@@ -28,7 +28,12 @@ import os
 
 from fastapi import APIRouter, Header, HTTPException
 
-from app.sentiment_service import compute_sentiment_payload, require_supported_symbol
+from app.sentiment_service import (
+    INSUFFICIENT_NEWS_RESPONSE,
+    compute_sentiment_payload,
+    refuse_if_insufficient,
+    require_supported_symbol,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +47,11 @@ RAPIDAPI_PROXY_SECRET = os.environ.get("RAPIDAPI_PROXY_SECRET", "")
 RAPIDAPI_SCHEME = "RapidAPIProxySecret"
 
 
-@router.get("/sentiment/{symbol}", openapi_extra={"security": [{RAPIDAPI_SCHEME: []}]})
+@router.get(
+    "/sentiment/{symbol}",
+    openapi_extra={"security": [{RAPIDAPI_SCHEME: []}]},
+    responses=INSUFFICIENT_NEWS_RESPONSE,
+)
 async def rapidapi_sentiment(
     symbol: str,
     x_rapidapi_proxy_secret: str | None = Header(None, alias="X-RapidAPI-Proxy-Secret"),
@@ -69,7 +78,8 @@ async def rapidapi_sentiment(
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-            
+    refuse_if_insufficient(payload, "rapidapi")
+
     logger.info(
            "[rapidapi-usage] symbol=%s user=%s plan=%s",
            symbol.upper(),
