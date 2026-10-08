@@ -65,11 +65,16 @@ def refuse_if_insufficient(payload: dict, lane: str) -> None:
         "lane": lane,
         "effective_n": effective_n,
     }))
+    # Don't send someone asking about BTC or ETH to BTC or ETH.
+    if symbol in ("BTC", "ETH"):
+        suggestion = "Try again later."
+    else:
+        suggestion = f"Try BTC or ETH, or {symbol} again later."
     raise HTTPException(
         status_code=422,
         detail=f"Not enough recent news for {symbol} in the last {window.MAX_AGE_HOURS} hours "
         f"to give a reliable reading (effective sample size {effective_n:.1f}, need "
-        f"{window.MIN_EFFECTIVE_SAMPLE}). Not charged. Try BTC or ETH, or {symbol} again later.",
+        f"{window.MIN_EFFECTIVE_SAMPLE}). Not charged. {suggestion}",
     )
 
 SOURCES = [

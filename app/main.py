@@ -622,8 +622,9 @@ What exists (symbols, first reading, row counts, missing hours): GET /archive
 - GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota
   (see /billing/pricing)
 - GET /rapidapi/sentiment/{{symbol}} -- RapidAPI-proxied traffic only
-Both answer the not-enough-recent-news case with the same HTTP 422; on
-/v1 it doesn't count against the key's quota.
+/v1 answers the not-enough-recent-news case with the same HTTP 422 and
+doesn't count it against the key's quota. /rapidapi returns the reading
+with the "{INSUFFICIENT_LABEL}" label (RapidAPI meters 4xx responses too).
 
 ## Discovery
 - OpenAPI spec: /openapi.json
@@ -638,8 +639,9 @@ The score covers headlines published in the last {MAX_AGE_HOURS} hours, and each
 headline's weight halves for every {HALF_LIFE_HOURS} hours of age.
 - overall_sentiment.average_compound: the weighted score, -1 to 1
 - overall_sentiment.label: bullish, bearish or neutral. When the effective
-  sample size is below {MIN_EFFECTIVE_SAMPLE} ("{INSUFFICIENT_LABEL}") the sentiment routes
-  return HTTP 422 with no reading instead, and don't charge
+  sample size is below {MIN_EFFECTIVE_SAMPLE} ("{INSUFFICIENT_LABEL}") /sentiment and
+  /v1/sentiment return HTTP 422 with no reading instead, and don't charge;
+  /rapidapi/sentiment returns the reading with that label
 - overall_sentiment.unweighted_compound_72h: the plain 72-hour average
 - overall_sentiment.effective_sample_size: how many full-weight headlines the
   weighted sample is worth

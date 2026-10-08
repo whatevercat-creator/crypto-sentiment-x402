@@ -1,13 +1,16 @@
 """
 We don't charge for answers we don't have: a reading for a supported coin
 that comes out as window.INSUFFICIENT_LABEL is refused with a 422 and no
-reading on every sold lane. x402 never settles it, the subscription lane
-doesn't count it, and each refusal logs one "insufficient_news_refused" line.
+reading on /sentiment (x402 never settles it) and /v1/sentiment (not counted
+against the key), and each refusal logs one "insufficient_news_refused" line.
+RapidAPI meters 4xx responses anyway, so /rapidapi/sentiment still returns
+the reading with the insufficient label.
 """
 
 import json
 import logging
 import secrets
+import sys
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -35,10 +38,13 @@ def _headlines(n):
     ]
 
 
+QUIET = {"LINK"}
+
+
 async def fake_payload(symbol):
-    """LINK is quiet (2 equal-weight headlines, effective n 2.0); anything else is busy (8)."""
+    """QUIET coins get 2 equal-weight headlines (effective n 2.0); anything else is busy (8)."""
     symbol = symbol.upper()
-    return svc.build_payload(symbol, _headlines(2 if symbol == "LINK" else 8), None)
+    return svc.build_payload(symbol, _headlines(2 if symbol in QUIET else 8), None)
 
 
 def _refusal_lines(caplog):
@@ -142,22 +148,54 @@ def test_subscription_key_is_still_checked_before_any_work(client, key, monkeypa
     assert r.status_code == expected and computed == []
 
 
-def test_rapidapi_call_for_quiet_coin_is_422(client, caplog, monkeypatch):  # noqa: F811
+@pytest.mark.parametrize("symbol", ["BTC", "ETH"])
+def test_quiet_btc_or_eth_is_not_told_to_try_btc_or_eth(symbol, monkeypatch):
+    import asyncio
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(sys.modules[__name__], "QUIET", {symbol})
+    with pytest.raises(HTTPException) as e:
+        svc.refuse_if_insufficient(asyncio.run(fake_payload(symbol)), "x402")
+    assert e.value.status_code == 422
+    assert e.value.detail == (
+        f"Not enough recent news for {symbol} in the last 72 hours to give a reliable "
+        "reading (effective sample size 2.0, need 5). Not charged. Try again later."
+    )
+
+
+def test_paid_call_for_quiet_btc_says_try_again_later(paid, monkeypatch):  # noqa: F811
+    client, _ = paid
+    monkeypatch.setattr(sys.modules[__name__], "QUIET", {"BTC"})
+    monkeypatch.setattr(main, "compute_sentiment_payload", fake_payload)
+    header = _payment_header(client, "BTC")
+    r = client.get("/sentiment/BTC", headers={"PAYMENT-SIGNATURE": header})
+    assert r.status_code == 422
+    assert r.json()["detail"].endswith("Not charged. Try again later.")
+    assert "Try BTC or ETH" not in r.json()["detail"]
+
+
+def test_rapidapi_call_for_quiet_coin_still_gets_the_reading(client, caplog, monkeypatch):  # noqa: F811
     monkeypatch.setattr(rapidapi, "RAPIDAPI_PROXY_SECRET", "proxy-secret")
     monkeypatch.setattr(rapidapi, "compute_sentiment_payload", fake_payload)
     headers = {"X-RapidAPI-Proxy-Secret": "proxy-secret"}
     with caplog.at_level(logging.INFO):
         r = client.get("/rapidapi/sentiment/LINK", headers=headers)
-    assert r.status_code == 422 and r.json() == {"detail": QUIET_MESSAGE}
-    _assert_one_refusal(caplog, "rapidapi")
+    assert r.status_code == 200
+    assert r.json()["overall_sentiment"]["label"] == svc.window.INSUFFICIENT_LABEL
+    assert _refusal_lines(caplog) == []
 
     assert client.get("/rapidapi/sentiment/BTC", headers=headers).status_code == 200
+    # Unsupported symbols are still turned away there.
+    assert client.get("/rapidapi/sentiment/AAPL", headers=headers).status_code == 404
 
 
 def test_openapi_and_llms_document_the_422(client):  # noqa: F811
     spec = client.get("/openapi.json").json()
-    for path in ("/sentiment/{symbol}", "/v1/sentiment/{symbol}", "/rapidapi/sentiment/{symbol}"):
+    for path in ("/sentiment/{symbol}", "/v1/sentiment/{symbol}"):
         description = spec["paths"][path]["get"]["responses"]["422"]["description"]
         assert "Not enough recent news" in description and "Not charged" in description
+    rapid = spec["paths"]["/rapidapi/sentiment/{symbol}"]["get"]["responses"]
+    assert "Not enough recent news" not in json.dumps(rapid)
     text = client.get("/llms.txt").text
     assert "HTTP 422" in text and "not charged" in text
+    assert "/rapidapi/sentiment returns the reading with that label" in text
