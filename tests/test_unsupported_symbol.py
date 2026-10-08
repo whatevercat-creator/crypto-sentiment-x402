@@ -76,6 +76,8 @@ def test_unpaid_request_still_gets_the_402_challenge(client):  # noqa: F811
     # Directories probe with placeholder and arbitrary paths and expect a 402.
     assert client.get("/sentiment/AAPL").status_code == 402
     assert client.get("/sentiment/%7Bsymbol%7D").status_code == 402
+    assert client.get("/sentiment/%3Asymbol").status_code == 402
+    assert client.get("/sentiment/BTC").status_code == 402
 
 
 def test_subscription_call_for_stock_is_not_counted(client, monkeypatch):  # noqa: F811

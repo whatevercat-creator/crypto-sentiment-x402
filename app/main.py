@@ -756,8 +756,6 @@ SENTIMENT_200 = {
 }
 
 
-# Tells x402 directories (x402scan / @agentcash/discovery) this is the paid
-# route and what it costs; the 402 challenge itself comes from the paywall.
 SENTIMENT_4XX = {
     400: {"description": "Malformed symbol. Not charged."},
     404: {
@@ -767,6 +765,8 @@ SENTIMENT_4XX = {
 }
 
 
+# Tells x402 directories (x402scan / @agentcash/discovery) this is the paid
+# route and what it costs; the 402 challenge itself comes from the paywall.
 SENTIMENT_PAYMENT_INFO = {
     "x-payment-info": {
         "price": {"mode": "fixed", "currency": "USD", "amount": PRICE_USD.lstrip("$")},

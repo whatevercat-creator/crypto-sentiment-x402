@@ -246,8 +246,10 @@ def test_row_written_by_hourly_logger_has_nonempty_drivers(db, monkeypatch):
     """The drivers column was added 2026-10-03 (35a2474); a reading the
     logger actually writes must carry real drivers JSON, and /history must
     return it."""
+    # An hour old, so it is always inside the 72-hour window.
+    published = (datetime.now(UTC) - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     headlines = [
-        Headline(title=t, source="CoinDesk", link=f"https://x.test/{i}", published="2026-10-03T00:00:00Z", text=t)
+        Headline(title=t, source="CoinDesk", link=f"https://x.test/{i}", published=published, text=t)
         for i, t in enumerate(["Bitcoin rally is great", "Bitcoin exchange hacked", "Bitcoin ETF approved, good news"])
     ]
 
