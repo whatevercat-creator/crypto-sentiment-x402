@@ -28,7 +28,7 @@ import os
 
 from fastapi import APIRouter, Header, HTTPException
 
-from app.sentiment_service import compute_sentiment_payload
+from app.sentiment_service import compute_sentiment_payload, require_supported_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ async def rapidapi_sentiment(
             "(API key) to call this API directly instead.",
         )
 
+    symbol = require_supported_symbol(symbol, "rapidapi")
     try:
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:

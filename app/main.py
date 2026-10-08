@@ -69,8 +69,8 @@ from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router, RAPIDAPI_SCHEME
 from app.integrations import router as integrations_router
-from app.coins import validate_symbol
-from app.sentiment_service import SOURCES, compute_sentiment_payload
+from app.coins import COIN_NAMES, validate_symbol
+from app.sentiment_service import SOURCES, compute_sentiment_payload, require_supported_symbol
 from app.sources.news import NEWS_OUTLETS, feed_health
 from app.window import (
     HALF_LIFE_HOURS,
@@ -596,6 +596,8 @@ Price: {PRICE_USD} USDC per call (see the live HTTP 402 response for the
 exact current price -- this text file is not the source of truth)
 Network: Base ({NETWORK_MODE}), x402 scheme "exact"
 Example: GET /sentiment/BTC
+Supported symbols: {", ".join(COIN_NAMES)}
+Any other symbol (a stock ticker, say) gets HTTP 404 and is not charged.
 
 ## Hourly archive (x402)
 GET {PUBLIC_BASE_URL}/history/{{symbol}}?start=<ISO 8601>&end=<ISO 8601>
@@ -756,6 +758,15 @@ SENTIMENT_200 = {
 
 # Tells x402 directories (x402scan / @agentcash/discovery) this is the paid
 # route and what it costs; the 402 challenge itself comes from the paywall.
+SENTIMENT_4XX = {
+    400: {"description": "Malformed symbol. Not charged."},
+    404: {
+        "description": "Not a supported symbol (crypto tickers only: "
+        + ", ".join(COIN_NAMES) + "). Not charged."
+    },
+}
+
+
 SENTIMENT_PAYMENT_INFO = {
     "x-payment-info": {
         "price": {"mode": "fixed", "currency": "USD", "amount": PRICE_USD.lstrip("$")},
@@ -769,6 +780,7 @@ SENTIMENT_PAYMENT_INFO = {
     openapi_extra=SENTIMENT_PAYMENT_INFO,
     responses={
         200: SENTIMENT_200,
+        **SENTIMENT_4XX,
         402: {
             "description": "Payment required. The x402 payment requirements are in "
             "the PAYMENT-REQUIRED header and mirrored in the JSON body."
@@ -780,7 +792,11 @@ async def get_sentiment(symbol: str):
 
     Returns the label and score plus `drivers`: up to 5 headlines that moved
     the score most (title, source, link, published, score; never article
-    text), and `drivers_summary`, one plain line about them."""
+    text), and `drivers_summary`, one plain line about them.
+
+    A symbol this API doesn't score is a 404, and the x402 middleware never
+    settles a payment on a 4xx, so nobody pays for a reading they don't get."""
+    symbol = require_supported_symbol(symbol, "x402")
     try:
         payload = await compute_sentiment_payload(symbol)
     except ValueError as e:
@@ -848,12 +864,14 @@ async def get_history(
     return JSONResponse(archive.history_payload(symbol, start_dt, end_dt))
 
 
-@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200})
+@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200, **SENTIMENT_4XX})
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
     """Stripe-subscription lane -- gated by an API key issued via /billing/*.
 
     Same response as /sentiment/{symbol}, including `drivers` and
-    `drivers_summary`, plus `_billing` usage."""
+    `drivers_summary`, plus `_billing` usage. An unsupported symbol is
+    rejected before the call is counted against the key's quota."""
+    symbol = require_supported_symbol(symbol, "v1")
     usage = verify_and_charge_api_key(x_api_key)
     try:
         payload = await compute_sentiment_payload(symbol)

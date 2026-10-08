@@ -37,8 +37,7 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, field_validator
 
 from app.billing import API_KEY_SECURITY, _db, TIERS, get_key_info
-from app.coins import validate_symbol
-from app.sentiment_service import compute_sentiment_payload
+from app.sentiment_service import compute_sentiment_payload, require_supported_symbol
 from app.window import INSUFFICIENT_LABEL
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -127,10 +126,8 @@ def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Ke
             "TELEGRAM_BOT_TOKEN) -- use 'webhook' or 'discord' instead.",
         )
 
-    try:
-        symbol = validate_symbol(body.symbol)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
+    # A watch on a symbol this API doesn't score would never fire.
+    symbol = require_supported_symbol(body.symbol, "alerts")
 
     with _db() as conn:
         count = conn.execute(

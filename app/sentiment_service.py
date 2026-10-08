@@ -5,11 +5,38 @@ call this so there is exactly one code path computing a score.
 """
 
 import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+
+from fastapi import HTTPException
 
 from app.sources.news import fetch_feed_items, fetch_news_headlines, select_headlines
 from app.sources.feargreed import fetch_fear_greed
 from app import window
-from app.coins import resolve_name, validate_symbol
+from app.coins import UnsupportedSymbol, resolve_name, supported_symbol, validate_symbol
+
+logger = logging.getLogger(__name__)
+
+
+def require_supported_symbol(symbol: str, lane: str) -> str:
+    """The normalized symbol, for a route that sells or meters a reading.
+    400 for a malformed symbol; 404 for a well-formed one this API doesn't
+    score, with one "unsupported_symbol" JSON log line (grep the logs for it
+    to see what people ask for). Call it before anything is charged: the
+    x402 middleware never settles a payment on a 4xx."""
+    try:
+        return supported_symbol(symbol)
+    except UnsupportedSymbol as e:
+        logger.info(json.dumps({
+            "event": "unsupported_symbol",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "symbol": e.symbol,
+            "lane": lane,
+        }))
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 SOURCES = [
     "coindesk.com RSS",

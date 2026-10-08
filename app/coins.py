@@ -80,6 +80,28 @@ def validate_symbol(symbol: str) -> str:
     return symbol
 
 
+class UnsupportedSymbol(ValueError):
+    """A well-formed ticker that isn't in COIN_NAMES (e.g. a stock, "AAPL")."""
+
+    def __init__(self, symbol: str):
+        self.symbol = symbol
+        super().__init__(
+            f"{symbol} is not a supported symbol. Not charged. "
+            f"Supported: {', '.join(COIN_NAMES)}."
+        )
+
+
+def supported_symbol(symbol: str) -> str:
+    """validate_symbol, then require a coin this API scores. Raises
+    UnsupportedSymbol (a ValueError) for anything else: the news matcher
+    only knows the names and aliases of the coins in COIN_NAMES, so a
+    reading for any other ticker would be a guess from the bare letters."""
+    symbol = validate_symbol(symbol)
+    if symbol not in COIN_NAMES:
+        raise UnsupportedSymbol(symbol)
+    return symbol
+
+
 def _term_regex(term: str) -> str:
     return r"\s+".join(re.escape(part) for part in term.split())
 
