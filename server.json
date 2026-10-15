@@ -21,14 +21,14 @@
       "environmentVariables": [
         {
           "name": "CDP_API_KEY_ID",
-          "description": "Coinbase Developer Platform API key ID (portal.cdp.coinbase.com). Used to sign x402 payments from your own wallet.",
-          "isRequired": true,
+          "description": "Coinbase Developer Platform API key ID (portal.cdp.coinbase.com). Used to sign x402 payments from your own wallet. Only needed for the paid crypto_sentiment tool; the free tools work without it.",
+          "isRequired": false,
           "isSecret": true
         },
         {
           "name": "CDP_API_KEY_SECRET",
-          "description": "Coinbase Developer Platform API key secret, paired with CDP_API_KEY_ID.",
-          "isRequired": true,
+          "description": "Coinbase Developer Platform API key secret, paired with CDP_API_KEY_ID. Only needed for the paid crypto_sentiment tool; the free tools work without it.",
+          "isRequired": false,
           "isSecret": true
         },
         {
