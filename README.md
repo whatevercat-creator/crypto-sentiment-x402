@@ -103,6 +103,20 @@ wraps the same API as an MCP tool (`crypto_sentiment`) -- the server pays
 for each call from its own CDP-managed wallet, so callers never touch
 crypto directly. See [MCP.md](MCP.md) for setup.
 
+### Try it free
+
+Three tools need no wallet, no CDP key and pay nothing. The server starts
+without any CDP variables, so you can install it and try these first:
+
+- `list_supported_coins` — the 24 supported ticker symbols and names.
+- `archive_coverage` — what the hourly archive holds (`GET /archive`):
+  first reading, row counts and missing hours per symbol.
+- `price_quote(symbol)` — makes one unpaid request and reads the 402
+  payment requirements: price, network, asset and the `payTo` address.
+
+`crypto_sentiment` is the paid reading: $0.01 per call in USDC on Base,
+paid from your own CDP wallet (setup in [MCP.md](MCP.md)).
+
 ## Subscription tiers (Stripe, no crypto required)
 
 Prefer a monthly bill over pay-per-call USDC? `GET /v1/sentiment/{symbol}`

@@ -19,9 +19,24 @@ breakdown and the headlines behind each score.
 Developer Platform) and pays the API's x402 price out of that wallet for
 every call, entirely inside your own local process — invisible to the MCP
 protocol layer, so it works in Claude Desktop (or any other stock MCP
-client) exactly like a normal, unpaid MCP server would. There's no free
-tier — whoever runs this MCP server funds the wallet it uses. If you're
-handing it to someone else to run, they fund their own wallet, not you.
+client) exactly like a normal, unpaid MCP server would. The paid reading
+has no free tier — whoever runs this MCP server funds the wallet it uses.
+If you're handing it to someone else to run, they fund their own wallet,
+not you.
+
+## Try it free
+
+Three tools need no wallet, no CDP key and pay nothing. The server starts
+without any CDP variables, so you can install it and try these first:
+
+- `list_supported_coins` — the 24 supported ticker symbols and names.
+- `archive_coverage` — what the hourly archive holds (`GET /archive`):
+  first reading, row counts and missing hours per symbol.
+- `price_quote(symbol)` — makes one unpaid request and reads the 402
+  payment requirements: price, network, asset and the `payTo` address.
+
+`crypto_sentiment` is the paid reading: $0.01 per call in USDC on Base,
+paid from your own CDP wallet (setup below).
 
 ## 1. Install
 
