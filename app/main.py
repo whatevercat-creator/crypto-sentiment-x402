@@ -631,7 +631,7 @@ with the "{INSUFFICIENT_LABEL}" label (RapidAPI meters 4xx responses too).
 - x402 discovery manifest: /.well-known/x402
 - Interactive docs: /docs
 - Transparency: /transparency
-- Signal validation (does the score lead or lag price?): /validation
+- Signal validation (does the score lead or lag price? 2026-10-17 first look: no measurable lead or lag): /validation
 
 ## Response
 JSON with `overall_sentiment`, a per-source `breakdown`, and `drivers`.
@@ -746,7 +746,8 @@ async def transparency():
         },
         "signal_validation": (
             "Whether the score leads or lags price is measured on hourly "
-            "data and published at /validation, including unflattering results."
+            "data and published at /validation, including unflattering results. "
+            "The 2026-10-17 first look found no measurable lead or lag."
         ),
         "no_hidden_fees": (
             "The price quoted in the x402 402 response is the full price -- "

@@ -18,19 +18,761 @@
       "applies_to": "Every score: on-demand calls, alerts, the hourly log and the daily dataset."
     }
   ],
-  "updated": "2026-10-04T00:00:00+00:00",
+  "updated": "2026-10-17T21:19:39+00:00",
+  "next_update": "2026-11-03",
+  "first_look_summary": "2026-10-17 first look: for BTC, ETH, XRP and SOL, hourly changes in the score show no statistically significant lead, lag or same-hour link with price at any offset from -12h to +12h (strongest |r| = 0.148; the corrected bar was about 0.17). Read it as a fast, sourced summary of what the news says, not a price signal.",
   "symbols": {
     "BTC": {
-      "status": "measuring",
-      "logging_since": "2026-09-28T13:00:00+00:00",
-      "first_results_expected": "2026-10-17",
-      "note": "2026-10-17 will be a first look at about 13 days of readings from the 2026-10-04 window change, not a final result."
+      "status": "measured",
+      "verdict": "no_significant_relationship",
+      "summary": "No offset clears the multiple-comparison-corrected threshold. Sentiment changes show no measurable lead or lag vs price in this window.",
+      "window_start": "2026-10-04T04:00:00+00:00",
+      "window_end": "2026-10-17T21:00:00+00:00",
+      "paired_hours": 329,
+      "readings": "window 72h-hl24 only",
+      "score": "weighted (average_compound)",
+      "offsets": [
+        {
+          "offset_hours": -12,
+          "n": 329,
+          "corr": -0.048,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -11,
+          "n": 329,
+          "corr": -0.0011,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -10,
+          "n": 329,
+          "corr": 0.0702,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -9,
+          "n": 329,
+          "corr": -0.0522,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -8,
+          "n": 329,
+          "corr": -0.031,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -7,
+          "n": 329,
+          "corr": 0.0583,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -6,
+          "n": 329,
+          "corr": -0.0124,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -5,
+          "n": 329,
+          "corr": 0.0487,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -4,
+          "n": 329,
+          "corr": -0.0809,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -3,
+          "n": 329,
+          "corr": 0.026,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -2,
+          "n": 329,
+          "corr": -0.0153,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -1,
+          "n": 329,
+          "corr": 0.0086,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 0,
+          "n": 329,
+          "corr": 0.1218,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 1,
+          "n": 329,
+          "corr": -0.0854,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 2,
+          "n": 328,
+          "corr": -0.0007,
+          "band_95": 0.1082,
+          "significant": false
+        },
+        {
+          "offset_hours": 3,
+          "n": 327,
+          "corr": 0.0171,
+          "band_95": 0.1084,
+          "significant": false
+        },
+        {
+          "offset_hours": 4,
+          "n": 326,
+          "corr": -0.0604,
+          "band_95": 0.1086,
+          "significant": false
+        },
+        {
+          "offset_hours": 5,
+          "n": 325,
+          "corr": 0.057,
+          "band_95": 0.1087,
+          "significant": false
+        },
+        {
+          "offset_hours": 6,
+          "n": 324,
+          "corr": -0.0145,
+          "band_95": 0.1089,
+          "significant": false
+        },
+        {
+          "offset_hours": 7,
+          "n": 323,
+          "corr": 0.0582,
+          "band_95": 0.1091,
+          "significant": false
+        },
+        {
+          "offset_hours": 8,
+          "n": 322,
+          "corr": 0.1357,
+          "band_95": 0.1092,
+          "significant": false
+        },
+        {
+          "offset_hours": 9,
+          "n": 321,
+          "corr": 0.0082,
+          "band_95": 0.1094,
+          "significant": false
+        },
+        {
+          "offset_hours": 10,
+          "n": 320,
+          "corr": -0.1441,
+          "band_95": 0.1096,
+          "significant": false
+        },
+        {
+          "offset_hours": 11,
+          "n": 319,
+          "corr": -0.0306,
+          "band_95": 0.1097,
+          "significant": false
+        },
+        {
+          "offset_hours": 12,
+          "n": 318,
+          "corr": -0.0737,
+          "band_95": 0.1099,
+          "significant": false
+        }
+      ],
+      "note": "First look at about 13 days of readings (2026-10-04 to 2026-10-17). Next update around 2026-11-03 with about 30 days."
     },
     "ETH": {
-      "status": "measuring",
-      "logging_since": "2026-09-28T13:00:00+00:00",
-      "first_results_expected": "2026-10-17",
-      "note": "2026-10-17 will be a first look at about 13 days of readings from the 2026-10-04 window change, not a final result."
+      "status": "measured",
+      "verdict": "no_significant_relationship",
+      "summary": "No offset clears the multiple-comparison-corrected threshold. Sentiment changes show no measurable lead or lag vs price in this window.",
+      "window_start": "2026-10-04T04:00:00+00:00",
+      "window_end": "2026-10-17T21:00:00+00:00",
+      "paired_hours": 329,
+      "readings": "window 72h-hl24 only",
+      "score": "weighted (average_compound)",
+      "offsets": [
+        {
+          "offset_hours": -12,
+          "n": 329,
+          "corr": -0.0073,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -11,
+          "n": 329,
+          "corr": -0.0337,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -10,
+          "n": 329,
+          "corr": 0.1019,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -9,
+          "n": 329,
+          "corr": 0.1121,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -8,
+          "n": 329,
+          "corr": 0.1092,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -7,
+          "n": 329,
+          "corr": 0.0777,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -6,
+          "n": 329,
+          "corr": 0.0038,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -5,
+          "n": 329,
+          "corr": -0.0092,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -4,
+          "n": 329,
+          "corr": -0.118,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -3,
+          "n": 329,
+          "corr": 0.0134,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -2,
+          "n": 329,
+          "corr": 0.0506,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -1,
+          "n": 329,
+          "corr": -0.0472,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 0,
+          "n": 329,
+          "corr": -0.0247,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 1,
+          "n": 329,
+          "corr": 0.0401,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 2,
+          "n": 328,
+          "corr": -0.0026,
+          "band_95": 0.1082,
+          "significant": false
+        },
+        {
+          "offset_hours": 3,
+          "n": 327,
+          "corr": -0.0431,
+          "band_95": 0.1084,
+          "significant": false
+        },
+        {
+          "offset_hours": 4,
+          "n": 326,
+          "corr": 0.0211,
+          "band_95": 0.1086,
+          "significant": false
+        },
+        {
+          "offset_hours": 5,
+          "n": 325,
+          "corr": 0.0291,
+          "band_95": 0.1087,
+          "significant": false
+        },
+        {
+          "offset_hours": 6,
+          "n": 324,
+          "corr": 0.065,
+          "band_95": 0.1089,
+          "significant": false
+        },
+        {
+          "offset_hours": 7,
+          "n": 323,
+          "corr": 0.0479,
+          "band_95": 0.1091,
+          "significant": false
+        },
+        {
+          "offset_hours": 8,
+          "n": 322,
+          "corr": -0.0312,
+          "band_95": 0.1092,
+          "significant": false
+        },
+        {
+          "offset_hours": 9,
+          "n": 321,
+          "corr": -0.0225,
+          "band_95": 0.1094,
+          "significant": false
+        },
+        {
+          "offset_hours": 10,
+          "n": 320,
+          "corr": -0.0318,
+          "band_95": 0.1096,
+          "significant": false
+        },
+        {
+          "offset_hours": 11,
+          "n": 319,
+          "corr": 0.0373,
+          "band_95": 0.1097,
+          "significant": false
+        },
+        {
+          "offset_hours": 12,
+          "n": 318,
+          "corr": -0.0022,
+          "band_95": 0.1099,
+          "significant": false
+        }
+      ],
+      "note": "First look at about 13 days of readings (2026-10-04 to 2026-10-17). Next update around 2026-11-03 with about 30 days."
+    },
+    "XRP": {
+      "status": "measured",
+      "verdict": "no_significant_relationship",
+      "summary": "No offset clears the multiple-comparison-corrected threshold. Sentiment changes show no measurable lead or lag vs price in this window.",
+      "window_start": "2026-10-04T04:00:00+00:00",
+      "window_end": "2026-10-17T21:00:00+00:00",
+      "paired_hours": 329,
+      "readings": "window 72h-hl24 only",
+      "score": "weighted (average_compound)",
+      "offsets": [
+        {
+          "offset_hours": -12,
+          "n": 329,
+          "corr": 0.0682,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -11,
+          "n": 329,
+          "corr": -0.0768,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -10,
+          "n": 329,
+          "corr": 0.0496,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -9,
+          "n": 329,
+          "corr": -0.0528,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -8,
+          "n": 329,
+          "corr": 0.0026,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -7,
+          "n": 329,
+          "corr": 0.0421,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -6,
+          "n": 329,
+          "corr": -0.0194,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -5,
+          "n": 329,
+          "corr": 0.0053,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -4,
+          "n": 329,
+          "corr": -0.0258,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -3,
+          "n": 329,
+          "corr": 0.0685,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -2,
+          "n": 329,
+          "corr": 0.0972,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -1,
+          "n": 329,
+          "corr": -0.0469,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 0,
+          "n": 329,
+          "corr": -0.0148,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 1,
+          "n": 329,
+          "corr": -0.0348,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 2,
+          "n": 328,
+          "corr": -0.0753,
+          "band_95": 0.1082,
+          "significant": false
+        },
+        {
+          "offset_hours": 3,
+          "n": 327,
+          "corr": -0.0601,
+          "band_95": 0.1084,
+          "significant": false
+        },
+        {
+          "offset_hours": 4,
+          "n": 326,
+          "corr": 0.1126,
+          "band_95": 0.1086,
+          "significant": false
+        },
+        {
+          "offset_hours": 5,
+          "n": 325,
+          "corr": 0.002,
+          "band_95": 0.1087,
+          "significant": false
+        },
+        {
+          "offset_hours": 6,
+          "n": 324,
+          "corr": 0.0155,
+          "band_95": 0.1089,
+          "significant": false
+        },
+        {
+          "offset_hours": 7,
+          "n": 323,
+          "corr": -0.0248,
+          "band_95": 0.1091,
+          "significant": false
+        },
+        {
+          "offset_hours": 8,
+          "n": 322,
+          "corr": 0.0513,
+          "band_95": 0.1092,
+          "significant": false
+        },
+        {
+          "offset_hours": 9,
+          "n": 321,
+          "corr": -0.0106,
+          "band_95": 0.1094,
+          "significant": false
+        },
+        {
+          "offset_hours": 10,
+          "n": 320,
+          "corr": -0.0354,
+          "band_95": 0.1096,
+          "significant": false
+        },
+        {
+          "offset_hours": 11,
+          "n": 319,
+          "corr": 0.0062,
+          "band_95": 0.1097,
+          "significant": false
+        },
+        {
+          "offset_hours": 12,
+          "n": 318,
+          "corr": -0.0496,
+          "band_95": 0.1099,
+          "significant": false
+        }
+      ],
+      "note": "First look at about 13 days of readings (2026-10-04 to 2026-10-17). Next update around 2026-11-03 with about 30 days."
+    },
+    "SOL": {
+      "status": "measured",
+      "verdict": "no_significant_relationship",
+      "summary": "No offset clears the multiple-comparison-corrected threshold. Sentiment changes show no measurable lead or lag vs price in this window.",
+      "window_start": "2026-10-04T04:00:00+00:00",
+      "window_end": "2026-10-17T21:00:00+00:00",
+      "paired_hours": 329,
+      "readings": "window 72h-hl24 only",
+      "score": "weighted (average_compound)",
+      "offsets": [
+        {
+          "offset_hours": -12,
+          "n": 329,
+          "corr": -0.0149,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -11,
+          "n": 329,
+          "corr": 0.0644,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -10,
+          "n": 329,
+          "corr": -0.0946,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -9,
+          "n": 329,
+          "corr": -0.0281,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -8,
+          "n": 329,
+          "corr": 0.0028,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -7,
+          "n": 329,
+          "corr": 0.0337,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -6,
+          "n": 329,
+          "corr": -0.1134,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -5,
+          "n": 329,
+          "corr": 0.0339,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -4,
+          "n": 329,
+          "corr": -0.0201,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -3,
+          "n": 329,
+          "corr": -0.067,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -2,
+          "n": 329,
+          "corr": 0.0176,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": -1,
+          "n": 329,
+          "corr": -0.0084,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 0,
+          "n": 329,
+          "corr": -0.0601,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 1,
+          "n": 329,
+          "corr": -0.0656,
+          "band_95": 0.1081,
+          "significant": false
+        },
+        {
+          "offset_hours": 2,
+          "n": 328,
+          "corr": -0.148,
+          "band_95": 0.1082,
+          "significant": false
+        },
+        {
+          "offset_hours": 3,
+          "n": 327,
+          "corr": 0.0444,
+          "band_95": 0.1084,
+          "significant": false
+        },
+        {
+          "offset_hours": 4,
+          "n": 326,
+          "corr": 0.0552,
+          "band_95": 0.1086,
+          "significant": false
+        },
+        {
+          "offset_hours": 5,
+          "n": 325,
+          "corr": 0.003,
+          "band_95": 0.1087,
+          "significant": false
+        },
+        {
+          "offset_hours": 6,
+          "n": 324,
+          "corr": 0.0906,
+          "band_95": 0.1089,
+          "significant": false
+        },
+        {
+          "offset_hours": 7,
+          "n": 323,
+          "corr": 0.0146,
+          "band_95": 0.1091,
+          "significant": false
+        },
+        {
+          "offset_hours": 8,
+          "n": 322,
+          "corr": -0.0116,
+          "band_95": 0.1092,
+          "significant": false
+        },
+        {
+          "offset_hours": 9,
+          "n": 321,
+          "corr": -0.0801,
+          "band_95": 0.1094,
+          "significant": false
+        },
+        {
+          "offset_hours": 10,
+          "n": 320,
+          "corr": 0.0034,
+          "band_95": 0.1096,
+          "significant": false
+        },
+        {
+          "offset_hours": 11,
+          "n": 319,
+          "corr": 0.0562,
+          "band_95": 0.1097,
+          "significant": false
+        },
+        {
+          "offset_hours": 12,
+          "n": 318,
+          "corr": -0.0151,
+          "band_95": 0.1099,
+          "significant": false
+        }
+      ],
+      "note": "First look at about 13 days of readings (2026-10-04 to 2026-10-17). Next update around 2026-11-03 with about 30 days."
     }
   }
 }

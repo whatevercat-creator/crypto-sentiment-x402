@@ -67,14 +67,25 @@ footer a{margin-right:16px;display:inline-block}
 """
 
 
+_VERDICT_WORDS = {
+    "no_significant_relationship": "no measurable lead or lag",
+    "leads": "sentiment moved before price",
+    "coincident": "sentiment and price moved in the same hour",
+    "lags": "sentiment moved after price",
+    "insufficient_data": "not enough data yet",
+}
+
+
 def _validation_html(validation: dict) -> str:
     rows = []
+    measured = False
     for symbol, entry in (validation.get("symbols") or {}).items():
         if entry.get("status") == "measured":
-            rows.append(
-                f"<li><strong>{escape(symbol)}</strong>: {escape(entry.get('verdict', ''))}"
-                f" &mdash; {escape(entry.get('summary', ''))}</li>"
-            )
+            measured = True
+            verdict = entry.get("verdict", "")
+            words = _VERDICT_WORDS.get(verdict, verdict.replace("_", " "))
+            note = f" {escape(entry['note'])}" if entry.get("note") else ""
+            rows.append(f"<li><strong>{escape(symbol)}</strong>: {escape(words)}.{note}</li>")
         else:
             expected = entry.get("first_results_expected")
             when = f" First results expected {escape(expected)}." if expected else ""
@@ -85,13 +96,22 @@ def _validation_html(validation: dict) -> str:
     if not rows:
         rows.append(f"<li>{escape(validation.get('detail', 'Measuring on hourly data.'))}</li>")
     prior = validation.get("honest_prior", "")
+    if measured and validation.get("first_look_summary"):
+        intro = (
+            f"<p>{escape(validation['first_look_summary'])} Full results, every offset and the "
+            'method are at <a href="/validation">/validation</a>.</p>'
+        )
+    else:
+        intro = (
+            "<p>Unknown yet, and we're not going to pretend otherwise. Whether the score "
+            "leads, coincides with, or lags price is being measured on hourly data and "
+            'published at <a href="/validation">/validation</a>, whatever it shows.</p>'
+        )
     return (
         '<section class="box" id="validation">'
         "<h2>Does it predict price?</h2>"
-        "<p>Unknown yet, and we're not going to pretend otherwise. Whether the score "
-        "leads, coincides with, or lags price is being measured on hourly data and "
-        f'published at <a href="/validation">/validation</a>, whatever it shows.</p>'
-        f"<ul>{''.join(rows)}</ul>"
+        + intro
+        + f"<ul>{''.join(rows)}</ul>"
         + (f'<p class="muted">{escape(prior)}</p>' if prior else "")
         + "</section>"
     )

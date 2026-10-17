@@ -17,6 +17,7 @@ import sqlite3
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
+from html import escape
 
 os.environ.setdefault("PAY_TO_ADDRESS", "0x000000000000000000000000000000000000dEaD")
 os.environ.setdefault("CDP_API_KEY_ID", "test")
@@ -440,16 +441,21 @@ def test_leadlag_window_only_on_older_db(tmp_path):
     assert leadlag.load_sentiment(str(path), "BTC", score="unweighted") == {}
 
 
-def test_validation_note_and_expected_date(client):
+def test_validation_first_look_and_next_update(client):
     doc = main._load_validation()
     note = doc["methodology_changes"][-1]
     assert note["date"] == "2026-10-04" and "72 hours" in note["change"] and "DL News" in note["change"]
     assert "--window-only" in doc["method"]
-    for symbol in ("BTC", "ETH"):
-        entry = doc["symbols"][symbol]
-        assert entry["first_results_expected"] == "2026-10-17" and "13 days" in entry["note"]
+    assert doc["next_update"] == "2026-11-03"
+    assert set(doc["symbols"]) == {"BTC", "ETH", "XRP", "SOL"}
+    for entry in doc["symbols"].values():
+        assert entry["status"] == "measured" and entry["verdict"] == "no_significant_relationship"
+        assert len(entry["offsets"]) == 25
+        assert not any(o["significant"] for o in entry["offsets"])
+        assert "2026-11-03" in entry["note"]
     html = client.get("/", headers={"Accept": "text/html"}).text
-    assert "13 days" in html
+    assert escape(doc["first_look_summary"]) in html
+    assert "no measurable lead or lag" in html
     assert client.get("/transparency").json()["methodology_changes"][-1]["date"] == "2026-10-04"
 
 
