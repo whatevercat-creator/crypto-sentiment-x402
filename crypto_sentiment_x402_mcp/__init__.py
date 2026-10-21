@@ -175,14 +175,27 @@ async def _paid_get(url: str, params: dict[str, str] | None = None) -> dict[str,
         response = await http.get(url, params=params)
         await response.aread()
 
-    if response.status_code != 200:
+    if response.status_code == 402:
         return {
-            "error": f"API returned HTTP {response.status_code}",
+            "error": "API returned HTTP 402",
             "detail": response.text,
             "paying_wallet": _signer_address,
             "hint": "A 402 here usually means the wallet above needs more "
             "USDC/ETH on the configured network.",
         }
+    if response.status_code != 200:
+        try:
+            detail = response.json()
+        except ValueError:
+            detail = response.text
+        out = {"error": f"API returned HTTP {response.status_code}", "detail": detail}
+        if 400 <= response.status_code < 500:
+            out["charged"] = False
+            out["note"] = (
+                "The API refused the request before payment settled, so "
+                "nothing was charged."
+            )
+        return out
 
     return response.json()
 
@@ -227,8 +240,9 @@ async def get_hourly_history(
     never backfilled, so a missed hour stays missing.
 
     Defaults to the last 7 days; at most 30 days per call. The symbol has to
-    be one archive_coverage lists as logged; any other symbol or an invalid
-    range is refused and not charged.
+    be one archive_coverage lists as logged. Unlogged symbols, invalid
+    ranges and ranges with no readings are refused and not charged; the
+    refusal comes back as an error with the API's explanation.
 
     Each call pays $0.05 in USDC on Base, charged to this MCP server's own
     configured wallet.

@@ -320,7 +320,7 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description="Hourly crypto news-sentiment readings for a ticker (e.g. BTC, ETH), recorded live at the top of every UTC hour and never backfilled. Each row: observed_at, average_compound (-1 to 1), sample_size, Fear & Greed value, matcher and the top 3 headlines behind it (title, link). Query start/end as ISO 8601; default last 7 days, max 30 days per call. See /archive for symbols and coverage.",
+        description="Hourly crypto news-sentiment readings for a ticker (e.g. BTC, ETH), recorded live at the top of every UTC hour and never backfilled. Each row: observed_at, average_compound (-1 to 1), sample_size, Fear & Greed value, matcher and the top 3 headlines behind it (title, link). Query start/end as ISO 8601; default last 7 days, max 30 days per call. An unlogged symbol, an invalid range or a range with no readings is refused and not charged. See /archive for symbols and coverage.",
         mime_type="application/json",
         extensions=HISTORY_DISCOVERY,
     ),
@@ -860,7 +860,11 @@ HISTORY_PAYMENT_INFO = {
             "description": "Payment required. The x402 payment requirements are in "
             "the PAYMENT-REQUIRED header and mirrored in the JSON body."
         },
-        404: {"description": "Symbol not in the archive (see /archive). Not charged."},
+        404: {
+            "description": "Symbol not in the archive (see /archive), or no readings "
+            "in the range (error \"no_readings_in_range\", with the symbol's "
+            "first_reading). Not charged."
+        },
     },
 )
 async def get_history(
@@ -869,7 +873,8 @@ async def get_history(
     end: Optional[str] = Query(None, description="ISO 8601 end, exclusive. Default: now. Max 30 days after start."),
 ):
     """x402 pay-per-call: hourly readings for one symbol. Errors are 4xx, and
-    the x402 middleware never settles a payment on a 4xx."""
+    the x402 middleware never settles a payment on a 4xx -- including a range
+    with no readings, so an empty result is never charged."""
     try:
         symbol = validate_symbol(symbol)
         start_dt, end_dt = archive.resolve_range(start, end)
@@ -880,7 +885,22 @@ async def get_history(
             status_code=404,
             detail=f"No hourly readings for {symbol}. See /archive for the symbols that are logged.",
         )
-    return JSONResponse(archive.history_payload(symbol, start_dt, end_dt))
+    payload = archive.history_payload(symbol, start_dt, end_dt)
+    if payload["count"] == 0:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "no_readings_in_range",
+                "symbol": symbol,
+                "start": payload["start"],
+                "end": payload["end"],
+                "first_reading": archive.first_reading_hour(symbol),
+                "message": f"No hourly readings for {symbol} in this range, so nothing "
+                "was charged. Readings are recorded live and never backfilled; see "
+                "GET /archive for coverage.",
+            },
+        )
+    return JSONResponse(payload)
 
 
 @app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200, **SENTIMENT_4XX, **INSUFFICIENT_NEWS_RESPONSE})

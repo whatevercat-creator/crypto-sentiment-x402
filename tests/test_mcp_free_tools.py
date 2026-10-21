@@ -172,7 +172,11 @@ def mock_paid_http(monkeypatch):
     """Fake CDP vars and route the x402 client through a MockTransport."""
     monkeypatch.setenv("CDP_API_KEY_ID", "test-id")
     monkeypatch.setenv("CDP_API_KEY_SECRET", "test-secret")
-    calls = []
+    class Calls(list):
+        state: dict
+
+    calls = Calls()
+    state = {"response": lambda r: httpx.Response(200, json={"symbol": "BTC", "readings": []})}
 
     async def fake_payment_client():
         return object()
@@ -181,13 +185,14 @@ def mock_paid_http(monkeypatch):
     async def fake_x402_client(payment_client):
         def handler(request):
             calls.append(request)
-            return httpx.Response(200, json={"symbol": "BTC", "readings": []})
+            return state["response"](request)
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
             yield http
 
     monkeypatch.setattr(mcp_pkg, "_get_payment_client", fake_payment_client)
     monkeypatch.setattr(mcp_pkg, "x402HttpxClient", fake_x402_client)
+    calls.state = state
     return calls
 
 
@@ -229,3 +234,32 @@ def test_version_at_initialize_matches_pyproject():
     info = asyncio.run(go())
     assert info.name == "crypto-sentiment"
     assert info.version == expected == mcp_pkg.__version__
+
+
+def test_hourly_history_passes_no_readings_404_through(mock_paid_http):
+    body = {
+        "error": "no_readings_in_range",
+        "symbol": "SOL",
+        "start": "2026-10-01T00:00:00Z",
+        "end": "2026-10-10T00:00:00Z",
+        "first_reading": "2026-10-12T07:00:00Z",
+        "message": "No hourly readings for SOL in this range, so nothing was charged.",
+    }
+    mock_paid_http.state["response"] = lambda r: httpx.Response(404, json=body)
+    out = asyncio.run(
+        mcp_pkg.get_hourly_history(
+            "SOL", start="2026-10-01T00:00:00Z", end="2026-10-10T00:00:00Z"
+        )
+    )
+    assert out["error"] == "API returned HTTP 404"
+    assert out["detail"] == body
+    assert out["charged"] is False
+    assert "nothing was charged" in out["note"]
+    assert "paying_wallet" not in out
+
+
+def test_paid_402_keeps_wallet_hint(mock_paid_http):
+    mock_paid_http.state["response"] = lambda r: httpx.Response(402, json={})
+    out = asyncio.run(mcp_pkg.get_hourly_history("BTC"))
+    assert out["error"] == "API returned HTTP 402"
+    assert "paying_wallet" in out and "USDC" in out["hint"]

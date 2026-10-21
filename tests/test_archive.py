@@ -233,6 +233,32 @@ def test_history_exactly_30_days_allowed(db):
     assert _call("BTC", "2026-09-03T00:00:00Z", "2026-10-03T00:00:00Z")["count"] == 1
 
 
+def test_history_empty_range_is_404_with_first_reading(db):
+    _insert("SOL", datetime(2026, 10, 12, 7, 0, 2, tzinfo=UTC))
+    _insert("SOL", datetime(2026, 10, 12, 8, 0, 2, tzinfo=UTC))
+    r = asyncio.run(main.get_history("sol", start="2026-10-01T00:00:00Z", end="2026-10-10T00:00:00Z"))
+    assert r.status_code == 404
+    assert json.loads(r.body) == {
+        "error": "no_readings_in_range",
+        "symbol": "SOL",
+        "start": "2026-10-01T00:00:00Z",
+        "end": "2026-10-10T00:00:00Z",
+        "first_reading": "2026-10-12T07:00:00Z",
+        "message": "No hourly readings for SOL in this range, so nothing was charged. "
+        "Readings are recorded live and never backfilled; see GET /archive for coverage.",
+    }
+
+
+def test_history_partly_covered_range_is_200_with_its_rows(db):
+    _insert("SOL", datetime(2026, 10, 9, 22, 0, 2, tzinfo=UTC), compound=0.3)
+    _insert("SOL", datetime(2026, 10, 9, 23, 0, 2, tzinfo=UTC), compound=0.4)
+    r = asyncio.run(main.get_history("SOL", start="2026-10-01T00:00:00Z", end="2026-10-10T00:00:00Z"))
+    assert r.status_code == 200
+    body = json.loads(r.body)
+    assert body["count"] == 2
+    assert [row["average_compound"] for row in body["rows"]] == [0.3, 0.4]
+
+
 def test_history_unknown_or_invalid_symbol(db):
     with pytest.raises(HTTPException) as e:
         _call("DOGE")

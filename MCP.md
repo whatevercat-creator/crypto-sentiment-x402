@@ -47,7 +47,8 @@ Two tools are paid, from your own CDP wallet in USDC on Base:
   (`GET /history/{symbol}`), $0.05 per call. Recorded live and never
   backfilled; `start`/`end` are ISO 8601, default the last 7 days, at most
   30 days per call. The symbol has to be one `archive_coverage` lists as
-  logged, otherwise it's refused and not charged.
+  logged. Unlogged symbols, invalid ranges and ranges with no readings are
+  refused and not charged.
 
 Wallet setup is below.
 

@@ -189,6 +189,15 @@ def symbol_in_archive(symbol: str) -> bool:
         return conn.execute("SELECT 1 FROM sentiment_hourly WHERE symbol = ? LIMIT 1", (symbol,)).fetchone() is not None
 
 
+def first_reading_hour(symbol: str) -> Optional[str]:
+    """The hour of a symbol's earliest reading as ISO 8601, or None if it has none."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT observed_at FROM sentiment_hourly WHERE symbol = ? ORDER BY observed_at LIMIT 1", (symbol,)
+        ).fetchone()
+    return _iso(_hour(_parse_ts(row[0]))) if row else None
+
+
 def _row_dict(row) -> dict:
     observed_at, compound, sample_size, fng, matcher, drivers, unweighted, effective, newest_age, window = row
     return {
