@@ -194,8 +194,7 @@ def test_openapi_and_llms_document_the_422(client):  # noqa: F811
     for path in ("/sentiment/{symbol}", "/v1/sentiment/{symbol}"):
         description = spec["paths"][path]["get"]["responses"]["422"]["description"]
         assert "Not enough recent news" in description and "Not charged" in description
-    rapid = spec["paths"]["/rapidapi/sentiment/{symbol}"]["get"]["responses"]
-    assert "Not enough recent news" not in json.dumps(rapid)
+    assert "/rapidapi/sentiment/{symbol}" not in spec["paths"]
     text = client.get("/llms.txt").text
     assert "HTTP 422" in text and "not charged" in text
     assert "/rapidapi/sentiment returns the reading with that label" in text

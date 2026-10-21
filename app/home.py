@@ -184,6 +184,8 @@ def render_home(
     example_response: dict,
     validation: dict,
     history_price_usd: str = "$0.05",
+    example_taken_at: str = "",
+    coins: list = (),
 ) -> str:
     network = "Base" if network_mode == "mainnet" else "Base Sepolia (testnet)"
     ppc = pricing["pay_per_call"]
@@ -229,12 +231,15 @@ newer ones count more: a headline's weight halves for every 24 hours of age.</p>
 label, a numeric score, how many headlines it rests on, and the up to 5 headlines that moved the
 score most (titles and links only). When there's too little recent news to call it, the label
 says &ldquo;insufficient recent news&rdquo; instead.</p>
+<p>Supported coins ({len(coins)}): {escape(", ".join(coins))}.</p>
 
 <h2>Pricing</h2>
 <div class="price">
 <strong>{escape(price_usd)}</strong> per call, in USDC on {network}. No signup.
 <div class="muted">Endpoint: <code>{escape(ppc["endpoint"])}</code></div>
 </div>
+<p>Refused requests are not charged: an unsupported coin, too little recent news for a reading,
+or a history range with no readings.</p>
 <p>Prefer a monthly bill and an API key? Subscription plans (from
 <a href="/billing/pricing">/billing/pricing</a>), all on <code>GET /v1/sentiment/{{symbol}}</code>
 with an <code>X-API-Key</code> header:</p>
@@ -243,7 +248,8 @@ with an <code>X-API-Key</code> header:</p>
 <h2>Call it</h2>
 <pre><code>{curl}</code></pre>
 <p>An unpaid request returns HTTP 402 with the payment requirements. Any x402 client pays
-{escape(price_usd)} and retries automatically, and gets JSON like this (trimmed):</p>
+{escape(price_usd)} and retries automatically, and gets JSON like this.
+Real reading taken {escape(example_taken_at)}:</p>
 <pre><code>{example}</code></pre>
 
 {_validation_html(validation)}
@@ -266,7 +272,9 @@ exportable as CSV or JSON. Included with {escape(" and ".join(dataset_plans))}.<
 <li><a href="{GITHUB_URL}/blob/main/INTEGRATIONS.md">TradingView alert relay</a>: forward
 TradingView alerts enriched with current sentiment to your alert channels.</li>
 <li><a href="{PYPI_URL}">MCP server on PyPI</a>: <code>pip install crypto-sentiment-x402-mcp</code>
-to give an MCP client the sentiment tool.</li>
+gives an MCP client 5 tools: three free with no wallet (<code>list_supported_coins</code>,
+<code>archive_coverage</code>, <code>price_quote</code>) and two paid (<code>crypto_sentiment</code>,
+<code>get_hourly_history</code>).</li>
 </ul>
 </main>
 <footer>

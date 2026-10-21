@@ -68,7 +68,7 @@ from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app import archive
 from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
-from app.rapidapi import router as rapidapi_router, RAPIDAPI_SCHEME
+from app.rapidapi import router as rapidapi_router
 from app.integrations import router as integrations_router
 from app.coins import COIN_NAMES, validate_symbol
 from app.sentiment_service import (
@@ -107,9 +107,8 @@ if not os.environ.get("CDP_API_KEY_ID") or not os.environ.get("CDP_API_KEY_SECRE
         "Get a free API key at https://portal.cdp.coinbase.com"
     )
 
-# Example /sentiment response, shared by the Bazaar discovery metadata, the
-# OpenAPI spec and the HTML home page. Sample headlines and example.com
-# links, not real articles.
+# Example /sentiment response, shared by the Bazaar discovery metadata and
+# the OpenAPI spec. Sample headlines and example.com links, not real articles.
 EXAMPLE_RESPONSE = {
     "symbol": "BTC",
     "name": "Bitcoin",
@@ -152,6 +151,75 @@ EXAMPLE_RESPONSE = {
         },
     ],
     "drivers_summary": "2 of the top 3 headlines are positive, 1 is negative.",
+}
+
+# A real BTC reading for the HTML home page, from compute_sentiment_payload()
+# run locally (no payment). Drivers, titles, sources and links are exactly
+# as returned; breakdown and sources are left out.
+HOME_EXAMPLE_TAKEN_AT = "2026-10-21 17:55 UTC"
+HOME_EXAMPLE_RESPONSE = {
+    "symbol": "BTC",
+    "name": "Bitcoin",
+    "overall_sentiment": {
+        "sample_size": 62,
+        "average_compound": 0.1736,
+        "label": "bullish",
+        "positive_pct": 54.8,
+        "negative_pct": 17.7,
+        "neutral_pct": 27.4,
+        "unweighted_compound_72h": 0.1741,
+        "effective_sample_size": 56.57,
+        "newest_headline_age_hours": 0.25,
+        "window": "72h-hl24",
+    },
+    "drivers": [
+        {
+            "title": "Bitcoin Nears $85,000 as SpaceX Earnings Reignite Risk Appetite",
+            "source": "Bitcoin Magazine",
+            "link": "https://bitcoinmagazine.com/news/bitcoin-price-nears-85000-spacex-earnings",
+            "published": "2026-10-21T15:46:14Z",
+            "score": -0.7269,
+            "weight": 0.9398,
+            "effect": -0.0157,
+        },
+        {
+            "title": "Crypto rallies point to slower USDC growth and faster USDT growth, study finds",
+            "source": "CryptoSlate",
+            "link": "https://cryptoslate.com/usdc-and-usdt-growth-challenge-bitcoins-dry-powder-signal/",
+            "published": "2026-10-21T13:50:28Z",
+            "score": 0.765,
+            "weight": 0.8889,
+            "effect": 0.0156,
+        },
+        {
+            "title": "Morning Minute: Bitcoin Tops JPMorgan\u2019s Ten-Year Forecast for All Assets",
+            "source": "Decrypt",
+            "link": "https://decrypt.co/381510/morning-minute-bitcoin-tops-jpmorgans-ten-year-forecast-for-all-assets",
+            "published": "2026-10-21T12:16:38Z",
+            "score": 0.7579,
+            "weight": 0.8497,
+            "effect": 0.0148,
+        },
+        {
+            "title": "Bitcoin hovers around $83,000 as AI earnings revive tech, ZEC jumps 11%",
+            "source": "CoinDesk",
+            "link": "https://www.coindesk.com/markets/2026/10/21/bitcoin-hovers-around-usd83-000-as-ai-earnings-revive-tech-zec-jumps-11",
+            "published": "2026-10-21T04:07:07Z",
+            "score": 0.8625,
+            "weight": 0.6713,
+            "effect": 0.0133,
+        },
+        {
+            "title": "Bitcoin volatility nears 2026 lows as traders brace for Fed decision and US midterms",
+            "source": "The Block",
+            "link": "https://www.theblock.co/news/markets/2026-10-21-bitcoin-volatility-nears-2026-lows-as-traders-brace-for-fed-decision-and-us-midterms-421524",
+            "published": "2026-10-21T11:55:08Z",
+            "score": -0.6705,
+            "weight": 0.8409,
+            "effect": -0.013,
+        },
+    ],
+    "drivers_summary": "3 of the top 5 headlines are positive, 2 are negative.",
 }
 
 _NULLABLE_STRING = {"type": ["string", "null"]}
@@ -446,12 +514,23 @@ X_GUIDANCE = (
      "per call via x402; GET /archive (free) lists symbols and coverage."
 )
 
+INFO_DESCRIPTION = (
+     f"Crypto news sentiment for {len(COIN_NAMES)} coins, scored from headlines at "
+     f"{len(NEWS_OUTLETS)} crypto news outlets plus the Fear & Greed Index, with the "
+     "headlines behind each score. Paid per call over x402 in USDC on Base: "
+     f"{PRICE_USD} for GET /sentiment/{{symbol}} and {archive.HISTORY_PRICE_USD} for "
+     "GET /history/{symbol}. Requests for an unsupported coin, a coin with too "
+     "little recent news, or a history range with no readings are refused and "
+     "not charged."
+)
+
 _base_openapi = app.openapi
 
 
 def _openapi_with_guidance():
      schema = _base_openapi()
      schema.setdefault("info", {})["x-guidance"] = X_GUIDANCE
+     schema["info"]["description"] = INFO_DESCRIPTION
      schema.setdefault("components", {})["securitySchemes"] = {
           API_KEY_SCHEME: {
                "type": "apiKey",
@@ -460,13 +539,22 @@ def _openapi_with_guidance():
                "description": "Subscription key from POST /billing/signup-free "
                "or POST /billing/checkout/{tier}.",
           },
-          RAPIDAPI_SCHEME: {
-               "type": "apiKey",
-               "in": "header",
-               "name": "X-RapidAPI-Proxy-Secret",
-               "description": "Sent by RapidAPI's proxy; subscribe on RapidAPI to use this route.",
-          },
      }
+     # Spec only: the handlers still take any string, so an unsupported
+     # symbol keeps reaching the route's own 404
+     # (never charged) instead of failing validation before the paywall.
+     paths = schema.get("paths", {})
+     for param in paths.get("/sentiment/{symbol}", {}).get("get", {}).get("parameters", []):
+          if param["name"] == "symbol":
+               param["schema"]["enum"] = list(COIN_NAMES)
+     for param in paths.get("/history/{symbol}", {}).get("get", {}).get("parameters", []):
+          if param["name"] in ("start", "end"):
+               old = param["schema"]
+               param["schema"] = {
+                    "type": "string",
+                    "title": old.get("title"),
+                    "description": old.get("description"),
+               }
      return schema
 
 
@@ -531,7 +619,9 @@ async def root(request: Request):
             pricing=billing_pricing(),
             alert_limits={cfg["label"]: cfg["alert_limit"] for cfg in TIERS.values()},
             dataset_plans=[cfg["label"] for cfg in TIERS.values() if cfg["dataset_access"]],
-            example_response=EXAMPLE_RESPONSE,
+            example_response=HOME_EXAMPLE_RESPONSE,
+            example_taken_at=HOME_EXAMPLE_TAKEN_AT,
+            coins=list(COIN_NAMES),
             validation=_load_validation(),
             history_price_usd=archive.HISTORY_PRICE_USD,
         )
@@ -615,8 +705,9 @@ Price: {archive.HISTORY_PRICE_USD} USDC per call. Hourly readings recorded live
 and never backfilled; default range the last 7 days, max 30 days per call.
 Each row has observed_at, average_compound, sample_size, fear_greed_value,
 matcher and drivers (top 3 headlines; null for rows before 2026-10-03).
-What exists (symbols, first reading, row counts, missing hours): GET /archive
-(free).
+A symbol that isn't logged, an invalid range or a range with no readings
+gets a 4xx and is not charged. What exists (symbols, first reading, row
+counts, missing hours): GET /archive (free).
 
 ## Alternative access (not x402)
 - GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota

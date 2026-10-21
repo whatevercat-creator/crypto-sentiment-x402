@@ -340,7 +340,7 @@ _SUCCESS_ERROR_TITLES = {
 }
 
 
-@router.get("/success", openapi_extra={"security": []})
+@router.get("/success", include_in_schema=False)
 def checkout_success(session_id: str, request: Request):
     # Stripe redirects the buyer's browser here after checkout. Browsers
     # (Accept: text/html, as on GET /) get a page; API clients get JSON.
@@ -415,12 +415,12 @@ def _provisioned_key(session_id: str) -> dict:
     )
 
 
-@router.get("/cancel", openapi_extra={"security": []})
+@router.get("/cancel", include_in_schema=False)
 def checkout_cancel():
     return {"status": "checkout canceled, no charge made"}
 
 
-@router.post("/webhook", openapi_extra={"security": []})
+@router.post("/webhook", include_in_schema=False)
 async def stripe_webhook(request: Request):
     if not WEBHOOK_SECRET:
         raise HTTPException(503, "STRIPE_WEBHOOK_SECRET is not configured on this deployment.")

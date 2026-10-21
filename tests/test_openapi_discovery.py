@@ -9,6 +9,7 @@ import pytest
 
 from tests.test_home import client  # noqa: F401  (shared fixture)
 from app import main
+from app.coins import COIN_NAMES
 
 API_KEY_ROUTES = [
     ("/v1/sentiment/{symbol}", "get"),
@@ -48,10 +49,7 @@ def test_security_schemes_defined(spec):
         "name": "X-API-Key",
         "description": schemes["ApiKeyAuth"]["description"],
     }
-    assert schemes["RapidAPIProxySecret"]["name"] == "X-RapidAPI-Proxy-Secret"
-    assert spec["paths"]["/rapidapi/sentiment/{symbol}"]["get"]["security"] == [
-        {"RapidAPIProxySecret": []}
-    ]
+    assert "RapidAPIProxySecret" not in schemes
 
 
 def test_every_operation_declares_an_auth_mode(spec):
@@ -82,3 +80,45 @@ def test_favicon_served_free(client):  # noqa: F811
     assert r.content[:4] == b"\x00\x00\x01\x00"  # ICO header
     assert "payment-required" not in {k.lower() for k in r.headers}
     assert "/favicon.ico" not in client.get("/openapi.json").json()["paths"]
+
+
+HIDDEN_ROUTES = [
+    ("/billing/webhook", "post"),
+    ("/billing/success", "get"),
+    ("/billing/cancel", "get"),
+    ("/integrations/tradingview/{api_key}", "post"),
+    ("/rapidapi/sentiment/{symbol}", "get"),
+]
+
+
+@pytest.mark.parametrize("path,method", HIDDEN_ROUTES)
+def test_internal_routes_hidden_from_spec(spec, path, method):
+    assert method not in spec["paths"].get(path, {})
+
+
+def test_info_description_present(spec):
+    description = spec["info"]["description"]
+    assert f"{len(COIN_NAMES)} coins" in description
+    assert main.PRICE_USD in description and "not charged" in description
+    for phrase in ("always", "you must", "call this first"):
+        assert phrase not in description.lower()
+
+
+def test_sentiment_symbol_enum_lists_supported_coins(spec):
+    (symbol,) = spec["paths"]["/sentiment/{symbol}"]["get"]["parameters"]
+    assert symbol["schema"]["enum"] == list(COIN_NAMES)
+
+
+def test_history_range_params_are_plain_strings(spec):
+    # No format: date-time -- the route also takes timestamps without an offset.
+    params = {p["name"]: p for p in spec["paths"]["/history/{symbol}"]["get"]["parameters"]}
+    for name in ("start", "end"):
+        assert params[name]["schema"]["type"] == "string"
+        assert "format" not in params[name]["schema"]
+        assert params[name]["required"] is False
+
+
+def test_enum_is_spec_only(client):  # noqa: F811
+    # An unsupported symbol still reaches the paywall like before, not a 422
+    # from request validation.
+    assert client.get("/sentiment/AAPL").status_code == 402
