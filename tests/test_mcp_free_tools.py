@@ -116,3 +116,116 @@ def test_archive_coverage_passes_json_through(mock_http):
     assert out == summary
     assert calls[0].url.path == "/archive"
     assert calls[0].headers["accept"] == "application/json"
+
+
+# --- 0.1.4: symbol enums, get_hourly_history, version at initialize ---
+
+import contextlib
+import tomllib
+from pathlib import Path
+
+from mcp import Client
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _tool_schemas():
+    async def go():
+        async with Client(mcp_pkg.mcp) as client:
+            return {t.name: t.input_schema for t in (await client.list_tools()).tools}
+
+    return asyncio.run(go())
+
+
+@pytest.mark.parametrize("tool", ["crypto_sentiment", "price_quote"])
+def test_symbol_schema_is_enum_of_supported_coins(tool):
+    prop = _tool_schemas()[tool]["properties"]["symbol"]
+    assert prop["enum"] == list(mcp_pkg.SUPPORTED_COINS)
+    assert prop["description"].startswith("Uppercase crypto ticker, one of the 24")
+    assert "refused and not charged" in prop["description"]
+
+
+def test_hourly_history_schema():
+    schema = _tool_schemas()["get_hourly_history"]
+    assert schema["required"] == ["symbol"]
+    for name in ("start", "end"):
+        assert "ISO 8601" in schema["properties"][name]["description"]
+
+
+def test_hourly_history_without_cdp_vars_returns_friendly_message(monkeypatch):
+    monkeypatch.delenv("CDP_API_KEY_ID", raising=False)
+    monkeypatch.delenv("CDP_API_KEY_SECRET", raising=False)
+
+    def no_wallet():
+        raise AssertionError("must not create a wallet without CDP vars")
+
+    monkeypatch.setattr(mcp_pkg, "_get_payment_client", no_wallet)
+    out = asyncio.run(mcp_pkg.get_hourly_history("BTC"))
+
+    assert out["error"] == "no wallet configured"
+    assert "https://portal.cdp.coinbase.com" in out["detail"]
+    assert out["free_tools"] == ["list_supported_coins", "archive_coverage", "price_quote"]
+
+
+@pytest.fixture
+def mock_paid_http(monkeypatch):
+    """Fake CDP vars and route the x402 client through a MockTransport."""
+    monkeypatch.setenv("CDP_API_KEY_ID", "test-id")
+    monkeypatch.setenv("CDP_API_KEY_SECRET", "test-secret")
+    calls = []
+
+    async def fake_payment_client():
+        return object()
+
+    @contextlib.asynccontextmanager
+    async def fake_x402_client(payment_client):
+        def handler(request):
+            calls.append(request)
+            return httpx.Response(200, json={"symbol": "BTC", "readings": []})
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            yield http
+
+    monkeypatch.setattr(mcp_pkg, "_get_payment_client", fake_payment_client)
+    monkeypatch.setattr(mcp_pkg, "x402HttpxClient", fake_x402_client)
+    return calls
+
+
+def test_hourly_history_url_without_range(mock_paid_http):
+    out = asyncio.run(mcp_pkg.get_hourly_history(" btc "))
+    assert out == {"symbol": "BTC", "readings": []}
+    assert len(mock_paid_http) == 1
+    url = mock_paid_http[0].url
+    assert str(url) == f"{mcp_pkg.API_URL}/history/BTC"
+    assert url.query == b""
+
+
+def test_hourly_history_url_with_range(mock_paid_http):
+    asyncio.run(
+        mcp_pkg.get_hourly_history(
+            "ETH", start="2026-10-13T00:00:00Z", end="2026-10-14T00:00:00Z"
+        )
+    )
+    url = mock_paid_http[0].url
+    assert url.path == "/history/ETH"
+    assert dict(url.params) == {
+        "start": "2026-10-13T00:00:00Z",
+        "end": "2026-10-14T00:00:00Z",
+    }
+
+
+def test_hourly_history_url_with_start_only(mock_paid_http):
+    asyncio.run(mcp_pkg.get_hourly_history("SOL", start="2026-10-13T00:00:00Z"))
+    assert dict(mock_paid_http[0].url.params) == {"start": "2026-10-13T00:00:00Z"}
+
+
+def test_version_at_initialize_matches_pyproject():
+    expected = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+
+    async def go():
+        async with Client(mcp_pkg.mcp) as client:
+            return client.server_info
+
+    info = asyncio.run(go())
+    assert info.name == "crypto-sentiment"
+    assert info.version == expected == mcp_pkg.__version__

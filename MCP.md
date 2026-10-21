@@ -2,10 +2,11 @@
 
 mcp-name: io.github.whatevercat-creator/crypto-sentiment-x402
 
-The `crypto_sentiment_x402_mcp` package exposes the sentiment API as an MCP
-tool (`crypto_sentiment`) so Claude Desktop, Claude Code, or any other MCP
-client can call it directly as part of an agent's normal tool use — no
-separate HTTP client code needed on the caller's side.
+The `crypto_sentiment_x402_mcp` package exposes the sentiment API as MCP
+tools (`crypto_sentiment` for the current reading, `get_hourly_history` for
+past hourly readings, plus three free info tools) so Claude Desktop, Claude
+Code, or any other MCP client can call it directly as part of an agent's
+normal tool use — no separate HTTP client code needed on the caller's side.
 
 **What it returns:** sentiment for a ticker symbol (e.g. BTC, ETH, SOL) from
 9 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt, Bitcoin
@@ -29,14 +30,26 @@ not you.
 Three tools need no wallet, no CDP key and pay nothing. The server starts
 without any CDP variables, so you can install it and try these first:
 
-- `list_supported_coins` — the 24 supported ticker symbols and names.
+- `list_supported_coins` — the 24 supported ticker symbols and names
+  (the `symbol` inputs of `crypto_sentiment` and `price_quote` are typed as
+  this list).
 - `archive_coverage` — what the hourly archive holds (`GET /archive`):
   first reading, row counts and missing hours per symbol.
 - `price_quote(symbol)` — makes one unpaid request and reads the 402
   payment requirements: price, network, asset and the `payTo` address.
 
-`crypto_sentiment` is the paid reading: $0.01 per call in USDC on Base,
-paid from your own CDP wallet (setup below).
+Two tools are paid, from your own CDP wallet in USDC on Base:
+
+- `crypto_sentiment(symbol)` — the current reading, $0.01 per call.
+  Unsupported coins and coins with too little recent news are refused and
+  not charged.
+- `get_hourly_history(symbol, start, end)` — past hourly readings
+  (`GET /history/{symbol}`), $0.05 per call. Recorded live and never
+  backfilled; `start`/`end` are ISO 8601, default the last 7 days, at most
+  30 days per call. The symbol has to be one `archive_coverage` lists as
+  logged, otherwise it's refused and not charged.
+
+Wallet setup is below.
 
 ## 1. Install
 
@@ -110,7 +123,8 @@ to launch the server with those env vars set.
 ## 4. Use it
 
 Once registered, an agent can call the `crypto_sentiment` tool with a
-`symbol` argument (e.g. `BTC`) like any other tool — the payment happens
+`symbol` argument (e.g. `BTC`), or `get_hourly_history` with a `symbol` and
+optional `start`/`end`, like any other tool — the payment happens
 transparently inside the call. If a call returns an `error` field, it's
 almost always the wallet needing more funds; the response includes the
 paying wallet's address to check.

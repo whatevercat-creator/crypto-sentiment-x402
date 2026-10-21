@@ -99,7 +99,8 @@ search engine for agents looking for x402 services.
 ## MCP server (Claude Desktop / Claude Code)
 
 Prefer agents calling this over MCP instead of raw HTTP? `mcp_server.py`
-wraps the same API as an MCP tool (`crypto_sentiment`) -- the server pays
+wraps the same API as MCP tools (`crypto_sentiment`, `get_hourly_history`
+and three free info tools) -- the server pays
 for each call from its own CDP-managed wallet, so callers never touch
 crypto directly. See [MCP.md](MCP.md) for setup.
 
@@ -114,8 +115,18 @@ without any CDP variables, so you can install it and try these first:
 - `price_quote(symbol)` — makes one unpaid request and reads the 402
   payment requirements: price, network, asset and the `payTo` address.
 
-`crypto_sentiment` is the paid reading: $0.01 per call in USDC on Base,
-paid from your own CDP wallet (setup in [MCP.md](MCP.md)).
+Two tools are paid, from your own CDP wallet in USDC on Base:
+
+- `crypto_sentiment(symbol)` — the current reading, $0.01 per call.
+  Unsupported coins and coins with too little recent news are refused and
+  not charged.
+- `get_hourly_history(symbol, start, end)` — past hourly readings
+  (`GET /history/{symbol}`), $0.05 per call. Recorded live and never
+  backfilled; `start`/`end` are ISO 8601, default the last 7 days, at most
+  30 days per call. The symbol has to be one `archive_coverage` lists as
+  logged, otherwise it's refused and not charged.
+
+Wallet setup is in [MCP.md](MCP.md).
 
 ## Subscription tiers (Stripe, no crypto required)
 
