@@ -43,9 +43,9 @@ _OUTLET_BY_URL = {url: name for name, url in NEWS_OUTLETS.items()}
 
 @dataclass(frozen=True)
 class Headline:
-    """One feed item. `text` (title + description) is what gets matched and
-    scored; only title, source, link and published are ever returned to
-    callers -- never the description, which is article text."""
+    """One feed item. `text` (title + cleaned description, see clean_text) is
+    what gets matched and scored; only title, source, link and published are
+    ever returned to callers -- never the description, which is article text."""
 
     title: str
     source: str
@@ -59,6 +59,34 @@ _TAG = re.compile(r"<[^>]+>")
 
 def _clean_title(raw: str) -> str:
     return " ".join(html.unescape(_TAG.sub(" ", raw)).split())
+
+
+# Boilerplate the feeds append to every description (seen in the 9 feeds on
+# 2026-10-21). Each runs to the end of the description and is short, so a
+# match is only dropped when it's the tail.
+_FOOTERS = (
+    re.compile(r"\bThe post\b.{0,300}?\bappeared first on\b.{0,200}$", re.IGNORECASE | re.DOTALL),  # WordPress default
+    re.compile(r"\bThis post\b.{0,300}?\bfirst appeared on\b.{0,300}$", re.IGNORECASE | re.DOTALL),  # Bitcoin Magazine
+    re.compile(r"\bRead the full story on\b.{0,200}$", re.IGNORECASE | re.DOTALL),  # CryptoSlate, + newsletter line
+)
+
+
+def clean_text(title: str, description: str, outlet: str = "") -> str:
+    """What gets matched and scored for one item (method 72h-hl24-v2): the
+    cleaned title plus the description with HTML tags removed (so markup
+    like an image's style="display: block" isn't scored), entities decoded,
+    feed footers dropped, the outlet's own name removed (Bitcoin Magazine's
+    byline isn't a mention of bitcoin) and a leading repeat of the title
+    dropped (Bitcoin Magazine's descriptions open with it)."""
+    title = _clean_title(title)
+    desc = _clean_title(description)
+    for footer in _FOOTERS:
+        desc = footer.sub("", desc).strip()
+    if outlet:
+        desc = " ".join(desc.replace(outlet, " ").split())
+    if title and desc.startswith(title):
+        desc = desc[len(title):].strip()
+    return f"{title} {desc}".strip()
 
 
 def _clean_link(raw: Optional[str]) -> Optional[str]:
@@ -183,7 +211,7 @@ async def fetch_feed_items(limit_per_feed: int = 30) -> List[Headline]:
                         source=outlet,
                         link=_clean_link(item.findtext("link")),
                         published=_iso_published(item.findtext("pubDate")),
-                        text=f"{title} {desc}",
+                        text=clean_text(title, desc, outlet),
                     )
                 )
             _record_health(outlet, datetime.now(timezone.utc), feed_items)

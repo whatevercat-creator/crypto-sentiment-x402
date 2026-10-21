@@ -12,6 +12,9 @@ and get the data.
 
 **Scoring:** VADER sentiment analysis, extended with a crypto slang lexicon
 (moon, rekt, rug, hodl, bullish/bearish, etc.) so slang isn't scored as neutral.
+Each headline is matched and scored on its title plus its feed description with
+HTML tags, entities, feed footers and the outlet's own name removed
+(`clean_text` in `app/sources/news.py`; method `72h-hl24-v2` from 2026-10-21).
 Only headlines published in the last 72 hours count, and each headline's
 weight halves for every 24 hours of age (`app/window.py`). When the effective
 sample size is below 5, the label is `insufficient recent news`.
@@ -193,7 +196,7 @@ Example paid response:
     "unweighted_compound_72h": 0.17,
     "effective_sample_size": 31.4,
     "newest_headline_age_hours": 1.6,
-    "window": "72h-hl24"
+    "window": "72h-hl24-v2"
   },
   "drivers": [{ "title": "...", "source": "CoinDesk", "link": "https://...", "published": "...", "score": 0.62, "weight": 0.93, "effect": 0.03 }],
   "drivers_summary": "3 of the top 5 headlines are positive, 2 are negative.",

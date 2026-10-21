@@ -27,8 +27,14 @@ from app.sentiment import score_text
 
 WINDOW_CHANGED_ON = "2026-10-04"
 # Recorded with each hourly row and returned in every response; bump it
-# whenever the window or weighting changes.
-WINDOW_VERSION = "72h-hl24"
+# whenever the window, weighting or how a headline is scored changes.
+# "72h-hl24" (2026-10-04): this window and weighting, scoring raw feed text.
+# "72h-hl24-v2" (CLEAN_TEXT_CHANGED_ON): same window and weighting; title +
+# description are cleaned before matching and scoring (app/sources/news.py's
+# clean_text) and multi-word lexicon entries work (app/sentiment.py).
+PREVIOUS_WINDOW_VERSION = "72h-hl24"
+WINDOW_VERSION = "72h-hl24-v2"
+CLEAN_TEXT_CHANGED_ON = "2026-10-21"
 MAX_AGE_HOURS = 72
 HALF_LIFE_HOURS = 24
 MIN_EFFECTIVE_SAMPLE = 5

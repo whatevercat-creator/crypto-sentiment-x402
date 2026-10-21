@@ -66,7 +66,7 @@ NEG = "Bitcoin exchange hacked in massive scam"
 
 def test_named_constants():
     assert (window.MAX_AGE_HOURS, window.HALF_LIFE_HOURS, window.MIN_EFFECTIVE_SAMPLE) == (72, 24, 5)
-    assert window.WINDOW_VERSION == "72h-hl24"
+    assert window.WINDOW_VERSION == "72h-hl24-v2" and window.PREVIOUS_WINDOW_VERSION == "72h-hl24"
     assert window.INSUFFICIENT_LABEL == "insufficient recent news"
 
 
@@ -100,7 +100,7 @@ def test_weighted_score_unweighted_score_and_effective_sample():
     assert overall["unweighted_compound_72h"] == round(sum(scores) / len(scores), 4)
     assert overall["effective_sample_size"] == round(sum(weights) ** 2 / sum(w * w for w in weights), 2)
     assert overall["newest_headline_age_hours"] == 0.0
-    assert overall["window"] == "72h-hl24" and overall["sample_size"] == 7
+    assert overall["window"] == window.WINDOW_VERSION and overall["sample_size"] == 7
     # The fresh positive headline outweighs the 2-day-old negative one.
     assert overall["average_compound"] > overall["unweighted_compound_72h"]
 
@@ -346,7 +346,7 @@ def test_hourly_row_stores_window_columns_and_old_rows_stay_null(db, monkeypatch
         ).fetchall()
     assert tuple(rows[0])[1:] == (None, None, None, None)
     compound, unweighted, effective, newest, win = rows[1]
-    assert win == "72h-hl24" and 5 < effective < 7 and 0.9 < newest < 1.1
+    assert win == window.WINDOW_VERSION and 5 < effective < 7 and 0.9 < newest < 1.1
     assert compound == unweighted  # identical headlines: weighting can't change the average
 
 
@@ -395,7 +395,7 @@ def test_history_and_archive_carry_window_fields(db, monkeypatch):
     body = json.loads(asyncio.run(main.get_history("BTC", start=None, end=None)).body)
     old, new = body["rows"]
     assert old["window"] is None and old["effective_sample_size"] is None
-    assert new["window"] == "72h-hl24" and new["unweighted_compound_72h"] is not None
+    assert new["window"] == window.WINDOW_VERSION and new["unweighted_compound_72h"] is not None
     assert "72h-hl24" in body["average_compound_note"]
     summary = archive.archive_summary()
     assert summary["symbols"]["BTC"]["window_rows"] == 1 and "window" in summary["average_compound_note"]
@@ -443,7 +443,7 @@ def test_leadlag_window_only_on_older_db(tmp_path):
 
 def test_validation_first_look_and_next_update(client):
     doc = main._load_validation()
-    note = doc["methodology_changes"][-1]
+    note = next(n for n in doc["methodology_changes"] if n["date"] == "2026-10-04")
     assert note["date"] == "2026-10-04" and "72 hours" in note["change"] and "DL News" in note["change"]
     assert "--window-only" in doc["method"]
     assert doc["next_update"] == "2026-11-03"
@@ -456,7 +456,7 @@ def test_validation_first_look_and_next_update(client):
     html = client.get("/", headers={"Accept": "text/html"}).text
     assert escape(doc["first_look_summary"]) in html
     assert "no measurable lead or lag" in html
-    assert client.get("/transparency").json()["methodology_changes"][-1]["date"] == "2026-10-04"
+    assert note in client.get("/transparency").json()["methodology_changes"]
 
 
 def test_history_notes_do_not_share_names_with_row_fields(db):

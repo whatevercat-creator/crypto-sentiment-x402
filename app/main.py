@@ -80,6 +80,7 @@ from app.sentiment_service import (
 )
 from app.sources.news import NEWS_OUTLETS, feed_health
 from app.window import (
+    CLEAN_TEXT_CHANGED_ON,
     HALF_LIFE_HOURS,
     INSUFFICIENT_LABEL,
     MAX_AGE_HOURS,
@@ -156,40 +157,40 @@ EXAMPLE_RESPONSE = {
 # A real BTC reading for the HTML home page, from compute_sentiment_payload()
 # run locally (no payment). Drivers, titles, sources and links are exactly
 # as returned; breakdown and sources are left out.
-HOME_EXAMPLE_TAKEN_AT = "2026-10-21 17:55 UTC"
+HOME_EXAMPLE_TAKEN_AT = "2026-10-21 23:09 UTC"
 HOME_EXAMPLE_RESPONSE = {
     "symbol": "BTC",
     "name": "Bitcoin",
     "overall_sentiment": {
-        "sample_size": 62,
-        "average_compound": 0.1736,
+        "sample_size": 54,
+        "average_compound": 0.2518,
         "label": "bullish",
-        "positive_pct": 54.8,
-        "negative_pct": 17.7,
-        "neutral_pct": 27.4,
-        "unweighted_compound_72h": 0.1741,
-        "effective_sample_size": 56.57,
-        "newest_headline_age_hours": 0.25,
-        "window": "72h-hl24",
+        "positive_pct": 59.3,
+        "negative_pct": 9.3,
+        "neutral_pct": 31.5,
+        "unweighted_compound_72h": 0.2544,
+        "effective_sample_size": 49.52,
+        "newest_headline_age_hours": 2.15,
+        "window": "72h-hl24-v2",
     },
     "drivers": [
         {
-            "title": "Bitcoin Nears $85,000 as SpaceX Earnings Reignite Risk Appetite",
+            "title": "\u201cMassively Undervalued\u201d \u2013 Samson Mow on MSTR & Bitcoin Treasuries",
             "source": "Bitcoin Magazine",
-            "link": "https://bitcoinmagazine.com/news/bitcoin-price-nears-85000-spacex-earnings",
-            "published": "2026-10-21T15:46:14Z",
-            "score": -0.7269,
-            "weight": 0.9398,
-            "effect": -0.0157,
+            "link": "https://bitcoinmagazine.com/videos/massively-undervalued-samson-mow-on-mstr-bitcoin-treasuries",
+            "published": "2026-10-21T13:43:51Z",
+            "score": 0.7579,
+            "weight": 0.7618,
+            "effect": 0.017,
         },
         {
-            "title": "Crypto rallies point to slower USDC growth and faster USDT growth, study finds",
-            "source": "CryptoSlate",
-            "link": "https://cryptoslate.com/usdc-and-usdt-growth-challenge-bitcoins-dry-powder-signal/",
-            "published": "2026-10-21T13:50:28Z",
-            "score": 0.765,
-            "weight": 0.8889,
-            "effect": 0.0156,
+            "title": "J.P. Morgan Reveals First-Ever Bitcoin Price Forecast in Long-Term Capital Market Report",
+            "source": "Bitcoin Magazine",
+            "link": "https://bitcoinmagazine.com/videos/j-p-morgan-reveals-first-ever-bitcoin-price-forecast-in-long-term-capital-market-report",
+            "published": "2026-10-21T13:56:27Z",
+            "score": 0.7269,
+            "weight": 0.7664,
+            "effect": 0.0164,
         },
         {
             "title": "Morning Minute: Bitcoin Tops JPMorgan\u2019s Ten-Year Forecast for All Assets",
@@ -197,29 +198,29 @@ HOME_EXAMPLE_RESPONSE = {
             "link": "https://decrypt.co/381510/morning-minute-bitcoin-tops-jpmorgans-ten-year-forecast-for-all-assets",
             "published": "2026-10-21T12:16:38Z",
             "score": 0.7579,
-            "weight": 0.8497,
-            "effect": 0.0148,
+            "weight": 0.7305,
+            "effect": 0.0163,
         },
         {
-            "title": "Bitcoin hovers around $83,000 as AI earnings revive tech, ZEC jumps 11%",
-            "source": "CoinDesk",
-            "link": "https://www.coindesk.com/markets/2026/10/21/bitcoin-hovers-around-usd83-000-as-ai-earnings-revive-tech-zec-jumps-11",
-            "published": "2026-10-21T04:07:07Z",
-            "score": 0.8625,
-            "weight": 0.6713,
-            "effect": 0.0133,
+            "title": "Crypto rallies point to slower USDC growth and faster USDT growth, study finds",
+            "source": "CryptoSlate",
+            "link": "https://cryptoslate.com/usdc-and-usdt-growth-challenge-bitcoins-dry-powder-signal/",
+            "published": "2026-10-21T13:50:28Z",
+            "score": 0.7184,
+            "weight": 0.7642,
+            "effect": 0.0161,
         },
         {
-            "title": "Bitcoin volatility nears 2026 lows as traders brace for Fed decision and US midterms",
-            "source": "The Block",
-            "link": "https://www.theblock.co/news/markets/2026-10-21-bitcoin-volatility-nears-2026-lows-as-traders-brace-for-fed-decision-and-us-midterms-421524",
-            "published": "2026-10-21T11:55:08Z",
-            "score": -0.6705,
-            "weight": 0.8409,
-            "effect": -0.013,
+            "title": "Beyond HODLing: How Bitcoin-Backed Loans Can Unlock New Financial Opportunities",
+            "source": "Bitcoin Magazine",
+            "link": "https://bitcoinmagazine.com/markets/beyond-hodling-how-bitcoin-backed-loans-can-unlock-new-financial-opportunities",
+            "published": "2026-10-21T16:24:07Z",
+            "score": 0.6369,
+            "weight": 0.8229,
+            "effect": 0.0154,
         },
     ],
-    "drivers_summary": "3 of the top 5 headlines are positive, 2 are negative.",
+    "drivers_summary": "All 5 top headlines are positive.",
 }
 
 _NULLABLE_STRING = {"type": ["string", "null"]}
@@ -747,8 +748,10 @@ headline's weight halves for every {HALF_LIFE_HOURS} hours of age.
 ## Data sources
 {len(NEWS_OUTLETS)} crypto news RSS outlets ({OUTLET_LIST}) and the Fear & Greed
 Index (alternative.me). Scored with VADER
-sentiment analysis plus a crypto slang lexicon. Reddit is intentionally not
-used -- see /transparency.
+sentiment analysis plus a crypto slang lexicon, on each headline's title plus
+its feed description with HTML, entities, feed footers and the outlet's own
+name removed (method {WINDOW_VERSION} from {CLEAN_TEXT_CHANGED_ON}; methodology notes at
+/validation). Reddit is intentionally not used -- see /transparency.
 
 ## Contact
 hi@forgealone.com
@@ -810,7 +813,10 @@ async def transparency():
             f"without a parseable publish date are left out. Each headline's weight "
             f"halves for every {HALF_LIFE_HOURS} hours of age. With an effective sample "
             f"size below {MIN_EFFECTIVE_SAMPLE} the label is \"{INSUFFICIENT_LABEL}\". "
-            f"Method version: {WINDOW_VERSION}."
+            f"Each headline is matched and scored on its title plus its feed description "
+            f"with HTML tags, entities, feed footers and the outlet's own name removed "
+            f"(from {CLEAN_TEXT_CHANGED_ON}). Method version: {WINDOW_VERSION}; results "
+            f"are reported separately per method version (see methodology_changes)."
         ),
         "feed_health": feed_health(),
         "sources_removed": {

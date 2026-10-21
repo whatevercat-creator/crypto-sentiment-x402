@@ -84,9 +84,13 @@ symbol at the top of every UTC hour into its own `sentiment_hourly` table
 `fear_greed_value`, `matcher`, `drivers`, and from 2026-10-04
 `unweighted_compound_72h`, `effective_sample_size`, `newest_headline_age_hours`
 and `window`). `average_compound` holds the recency-weighted 72-hour score on
-rows whose `window` is `72h-hl24` (the same number the API returns) and the old
-all-items average on earlier rows, where `window` and the other three are NULL;
-`scripts/leadlag.py --window-only` uses only the former. All symbols are scored from one fetch of the
+rows whose `window` is set and the old all-items average on earlier rows, where
+`window` and the other three are NULL. `window` is the method version:
+`72h-hl24` from 2026-10-04 (raw feed text scored) and `72h-hl24-v2` from
+2026-10-21 (feed text cleaned of HTML, entities, footers and the outlet's own
+name before matching and scoring; the number the API returns now). Don't mix
+the two: `scripts/leadlag.py --window 72h-hl24` (same as `--window-only`) or
+`--window 72h-hl24-v2` selects exactly one. All symbols are scored from one fetch of the
 feeds per hour, so adding symbols adds no feed requests. `matcher` is
 `whole_word` for readings made with the 2026-10-03 headline matcher and NULL
 for earlier, substring-matched rows; `scripts/leadlag.py --whole-word-only`

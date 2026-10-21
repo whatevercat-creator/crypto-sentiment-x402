@@ -6,6 +6,8 @@ layers a crypto-slang lexicon on top since VADER alone misses terms like
 "moon", "rekt", "rug", "hodl", etc.
 """
 
+import re
+
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from typing import List, Dict
 
@@ -24,12 +26,31 @@ CRYPTO_LEXICON: Dict[str, float] = {
     "overvalued": -2.0, "sell-off": -2.0, "liquidated": -2.5,
 }
 
+# VADER looks words up one at a time, so a multi-word entry ("bull run")
+# never matched before 2026-10-21 (method 72h-hl24-v2). Each such phrase is
+# now rewritten to one underscore-joined token ("bull_run", keeping the
+# original case so VADER's caps emphasis still applies) that carries the
+# entry's valence.
+_PHRASES = [
+    (re.compile(r"(?<!\w)" + r"\s+".join(map(re.escape, phrase.split())) + r"(?!\w)", re.IGNORECASE),
+     phrase.replace(" ", "_"))
+    for phrase in CRYPTO_LEXICON
+    if " " in phrase
+]
+
 _analyzer.lexicon.update(CRYPTO_LEXICON)
+_analyzer.lexicon.update({token: CRYPTO_LEXICON[token.replace("_", " ")] for _, token in _PHRASES})
+
+
+def _join_phrases(text: str) -> str:
+    for pattern, _ in _PHRASES:
+        text = pattern.sub(lambda m: "_".join(m.group(0).split()), text)
+    return text
 
 
 def score_text(text: str) -> float:
     """VADER compound score (-1..1) for one snippet, as score_texts uses."""
-    return _analyzer.polarity_scores(text)["compound"]
+    return _analyzer.polarity_scores(_join_phrases(text))["compound"]
 
 
 def score_texts(texts: List[str]) -> Dict:
@@ -50,7 +71,7 @@ def score_texts(texts: List[str]) -> Dict:
     pos = neg = neu = 0
 
     for text in texts:
-        scores = _analyzer.polarity_scores(text)
+        scores = _analyzer.polarity_scores(_join_phrases(text))
         compound = scores["compound"]
         compounds.append(compound)
         if compound >= 0.05:

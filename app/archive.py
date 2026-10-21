@@ -20,7 +20,14 @@ from typing import Optional
 from app.billing import _db
 from app.coins import MATCHER_CHANGED_ON, MATCHER_VERSION
 from app.hourly import HOURLY_SYMBOLS
-from app.window import HALF_LIFE_HOURS, MAX_AGE_HOURS, WINDOW_CHANGED_ON, WINDOW_VERSION
+from app.window import (
+    CLEAN_TEXT_CHANGED_ON,
+    HALF_LIFE_HOURS,
+    MAX_AGE_HOURS,
+    PREVIOUS_WINDOW_VERSION,
+    WINDOW_CHANGED_ON,
+    WINDOW_VERSION,
+)
 
 HISTORY_PRICE_USD = os.environ.get("X402_HISTORY_PRICE_USD", "$0.05")
 DEFAULT_RANGE = timedelta(days=7)
@@ -43,9 +50,26 @@ MATCHER_NOTE = (
 )
 WINDOW_NOTE = (
     f"average_compound depends on the row's window column. window "
-    f"\"{WINDOW_VERSION}\" (from {WINDOW_CHANGED_ON}): the recency-weighted score over "
+    f"\"{WINDOW_VERSION}\" (from {CLEAN_TEXT_CHANGED_ON}): the recency-weighted score over "
     f"headlines from the last {MAX_AGE_HOURS} hours (weight halves every "
-    f"{HALF_LIFE_HOURS} hours), the same number the live API returns; "
+    f"{HALF_LIFE_HOURS} hours), the same number the live API returns, with each "
+    "headline scored on its title plus feed description cleaned of HTML, entities "
+    f"and feed boilerplate. window \"{PREVIOUS_WINDOW_VERSION}\" ({WINDOW_CHANGED_ON} to "
+    f"{CLEAN_TEXT_CHANGED_ON}): the same window and weighting over the raw feed text. "
+    "On both, unweighted_compound_72h, effective_sample_size and "
+    "newest_headline_age_hours are filled in. window null (earlier rows): the plain "
+    "average over every item the feeds held, however old, and those four columns are "
+    "null. Don't mix window versions in one analysis; see /validation."
+)
+# The note as it read under 72h-hl24. HISTORY_EXAMPLE keeps it (and the
+# "72h-hl24" label) so the /history Bazaar example in the 402 stays exactly
+# as it was: the paid route's advertised contract doesn't change with the
+# scoring method.
+_EXAMPLE_WINDOW_NOTE = (
+    "average_compound depends on the row's window column. window "
+    "\"72h-hl24\" (from 2026-10-04): the recency-weighted score over "
+    "headlines from the last 72 hours (weight halves every "
+    "24 hours), the same number the live API returns; "
     "unweighted_compound_72h, effective_sample_size and newest_headline_age_hours "
     "are filled in. window null (earlier rows): the plain average over every item "
     "the feeds held, however old, and those four columns are null."
@@ -115,7 +139,7 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
             symbol,
             {"hours": set(), "rows": 0, "whole_word": 0, "with_drivers": 0, "windowed": 0, "first": None, "last": None},
         )
-        entry["windowed"] += window == WINDOW_VERSION
+        entry["windowed"] += window is not None
         observed = _parse_ts(observed_at)
         entry["hours"].add(_hour(observed))
         entry["rows"] += 1
@@ -291,12 +315,12 @@ HISTORY_EXAMPLE = {
             "unweighted_compound_72h": 0.1012,
             "effective_sample_size": 31.7,
             "newest_headline_age_hours": 1.2,
-            "window": WINDOW_VERSION,
+            "window": PREVIOUS_WINDOW_VERSION,
         },
     ],
     "recording": RECORDING_NOTE,
     "methodology": MATCHER_NOTE,
-    "average_compound_note": WINDOW_NOTE,
+    "average_compound_note": _EXAMPLE_WINDOW_NOTE,
 }
 
 
