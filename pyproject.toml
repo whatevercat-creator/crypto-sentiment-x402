@@ -18,6 +18,7 @@ dependencies = [
     "x402[httpx]>=0.1.0",
     "httpx",
     "pydantic>=2",
+    "certifi>=2026.10.19",
 ]
 
 [project.urls]

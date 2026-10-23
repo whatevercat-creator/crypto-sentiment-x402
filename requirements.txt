@@ -8,3 +8,4 @@ jsonschema
 python-dotenv==1.0.1
 stripe==15.5.1
 email-validator==2.3.0
+certifi>=2026.10.19  # eMudhra root removal; floor for httpx/stripe TLS trust store
