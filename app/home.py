@@ -12,6 +12,7 @@ CSS, no scripts, fonts or trackers.
 
 import json
 from html import escape
+from typing import Optional
 
 GITHUB_URL = "https://github.com/whatevercat-creator/crypto-sentiment-x402"
 RAPIDAPI_URL = "https://rapidapi.com/whatevercat/api/crypto-sentiment-analysis"
@@ -186,8 +187,20 @@ def render_home(
     history_price_usd: str = "$0.05",
     example_taken_at: str = "",
     coins: list = (),
+    coverage: Optional[dict] = None,
 ) -> str:
     network = "Base" if network_mode == "mainnet" else "Base Sepolia (testnet)"
+    coverage_html = ""
+    if coverage:
+        # coverage: symbol -> coverage_7d_pct (None with no readings in 7 days).
+        shares = ", ".join(
+            f"{escape(c)} {'n/a' if coverage.get(c) is None else f'{coverage[c]:g}%'}" for c in coins
+        )
+        coverage_html = (
+            f'<p class="muted">Hours with matching headlines, last 7 days: {shares}. '
+            "Low-coverage coins often get &ldquo;insufficient recent news&rdquo; (not charged). "
+            'Details: <a href="/archive">/archive</a>.</p>'
+        )
     ppc = pricing["pay_per_call"]
 
     plans = "".join(
@@ -232,6 +245,7 @@ label, a numeric score, how many headlines it rests on, and the up to 5 headline
 score most (titles and links only). When there's too little recent news to call it, the label
 says &ldquo;insufficient recent news&rdquo; instead.</p>
 <p>Supported coins ({len(coins)}): {escape(", ".join(coins))}.</p>
+{coverage_html}
 
 <h2>Pricing</h2>
 <div class="price">

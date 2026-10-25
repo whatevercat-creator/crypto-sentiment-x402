@@ -625,9 +625,21 @@ async def root(request: Request):
             coins=list(COIN_NAMES),
             validation=_load_validation(),
             history_price_usd=archive.HISTORY_PRICE_USD,
+            coverage=_home_coverage(),
         )
         return HTMLResponse(html, headers={"Vary": "Accept"})
     return JSONResponse(_root_index(), headers={"Vary": "Accept"})
+
+
+def _home_coverage() -> dict:
+    """symbol -> coverage_7d_pct for the home page; empty if the archive
+    can't be read, so the page still renders."""
+    try:
+        coverage = archive.coverage_7d()
+    except Exception:
+        logger.warning("[home] coverage unavailable", exc_info=True)
+        return {}
+    return {s: c["coverage_7d_pct"] for s, c in coverage.items()}
 
 
 def _root_index() -> dict:
@@ -707,8 +719,10 @@ and never backfilled; default range the last 7 days, max 30 days per call.
 Each row has observed_at, average_compound, sample_size, fear_greed_value,
 matcher and drivers (top 3 headlines; null for rows before 2026-10-03).
 A symbol that isn't logged, an invalid range or a range with no readings
-gets a 4xx and is not charged. What exists (symbols, first reading, row
-counts, missing hours): GET /archive (free).
+gets a 4xx and is not charged, and so does a range in which every hour had
+zero matching headlines (404 "no_headlines_in_range"). What exists (symbols,
+first reading, row counts, missing hours, coverage_7d_pct = share of the
+last 7 days' hours with headlines): GET /archive (free).
 
 ## Alternative access (not x402)
 - GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota
@@ -960,7 +974,10 @@ HISTORY_PAYMENT_INFO = {
         404: {
             "description": "Symbol not in the archive (see /archive), or no readings "
             "in the range (error \"no_readings_in_range\", with the symbol's "
-            "first_reading). Not charged."
+            "first_reading), or readings whose every hour had zero matching "
+            "headlines (error \"no_headlines_in_range\", with rows_in_range and the "
+            "symbol's coverage_7d_pct). A range with at least one hour of headlines "
+            "returns 200 with all its rows. Not charged."
         },
     },
 )
@@ -971,7 +988,9 @@ async def get_history(
 ):
     """x402 pay-per-call: hourly readings for one symbol. Errors are 4xx, and
     the x402 middleware never settles a payment on a 4xx -- including a range
-    with no readings, so an empty result is never charged."""
+    with no readings, or one where every hour had zero matching headlines
+    (sample_size 0), so an empty result is never charged. Low-coverage coins
+    often have such ranges; GET /archive lists each symbol's coverage_7d_pct."""
     try:
         symbol = validate_symbol(symbol)
         start_dt, end_dt = archive.resolve_range(start, end)
@@ -995,6 +1014,21 @@ async def get_history(
                 "message": f"No hourly readings for {symbol} in this range, so nothing "
                 "was charged. Readings are recorded live and never backfilled; see "
                 "GET /archive for coverage.",
+            },
+        )
+    if archive.no_headlines(payload["rows"]):
+        coverage = archive.coverage_for(symbol, archive.coverage_7d())
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "no_headlines_in_range",
+                "symbol": symbol,
+                "start": payload["start"],
+                "end": payload["end"],
+                "rows_in_range": payload["count"],
+                "coverage_7d_pct": coverage["coverage_7d_pct"],
+                "message": f"Every hour in this range had zero matching headlines for {symbol}, "
+                "so there's no sentiment to sell and nothing was charged. See GET /archive for coverage.",
             },
         )
     return JSONResponse(payload)
