@@ -22,6 +22,13 @@ not in code):
   SENTIMENT_API_URL     - base URL of the deployed API
                            (default: https://crypto-sentiment-x402.onrender.com)
   X402_NETWORK           - "mainnet" (default) or "testnet"
+  SENTIMENT_PAY_TO       - payTo address the paid tools expect in the 402
+                           (default: the hosted API's wallet). Set it when
+                           SENTIMENT_API_URL points at your own deployment.
+
+Before signing, each paid call checks the 402 it got: the amount must not
+exceed that tool's price (TOOL_PRICES_USD) and payTo, network and asset must
+match. Anything else is refused and nothing is paid.
 
 The wallet must hold USDC (+ a little ETH for gas) on the chosen network
 before calls succeed. Free testnet funds:
@@ -37,13 +44,14 @@ from typing import Annotated, Any, Literal
 import base64
 import binascii
 import json
+from contextvars import ContextVar
 
 import httpx
 from cdp import CdpClient
 from cdp.evm_local_account import EvmLocalAccount
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
-from x402 import x402Client
+from x402 import AbortResult, NoMatchingRequirementsError, x402Client
 from x402.http.clients import x402HttpxClient
 from x402.mechanisms.evm import EthAccountSigner
 from x402.mechanisms.evm.exact import ExactEvmScheme
@@ -120,6 +128,24 @@ FREE_TOOLS = ("list_supported_coins", "archive_coverage", "price_quote")
 # USDC uses 6 decimals on Base and Base Sepolia; 402 amounts are base units.
 USDC_DECIMALS = 6
 
+# What each paid tool expects the 402 to ask for (app/billing.py's
+# X402_PRICE_USD and app/archive.py's X402_HISTORY_PRICE_USD defaults).
+# _check_requirements refuses to sign for more, or for anyone else.
+TOOL_PRICES_USD = {"crypto_sentiment": 0.01, "get_hourly_history": 0.05}
+USDC_ASSET = {
+    "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+}[CAIP2_NETWORK]
+PAY_TO_ADDRESS = os.environ.get(
+    "SENTIMENT_PAY_TO", "0xA6E10884a70D00DE8b8c5dfF0a2a9B1a821cE074"
+)
+
+# The current paid call's expected price, set by _paid_get and read by the
+# payment client's before-signing hook. A refusal is recorded back into it.
+_expected_payment: ContextVar[dict[str, Any] | None] = ContextVar(
+    "_expected_payment", default=None
+)
+
 _cdp: CdpClient | None = None
 _payment_client: x402Client | None = None
 _signer_address: str | None = None
@@ -148,7 +174,41 @@ async def _get_payment_client() -> x402Client:
 
     _payment_client = x402Client()
     _payment_client.register(CAIP2_NETWORK, ExactEvmScheme(signer))
+    _payment_client.on_before_payment_creation(_check_requirements)
     return _payment_client
+
+
+def _check_requirements(context: Any) -> AbortResult | None:
+    """Before-signing hook: abort unless the requirements the SDK is about to
+    sign match the current tool's price, payTo, network and asset. Fails
+    closed when no paid tool set an expectation."""
+    expected = _expected_payment.get()
+    if expected is None:
+        return AbortResult(reason="no expected price set for this payment")
+
+    req = context.selected_requirements
+    amount = getattr(req, "amount", None) or getattr(req, "max_amount_required", None)
+    problems = []
+    try:
+        over = int(amount) > expected["amount"]
+    except (TypeError, ValueError):
+        over = True
+    if over:
+        problems.append(
+            f"amount {amount!r} is above the expected {expected['amount']} "
+            f"(${expected['price_usd']})"
+        )
+    if str(req.pay_to).lower() != PAY_TO_ADDRESS.lower():
+        problems.append(f"payTo {req.pay_to!r} is not the expected {PAY_TO_ADDRESS}")
+    if req.network != CAIP2_NETWORK:
+        problems.append(f"network {req.network!r} is not the expected {CAIP2_NETWORK}")
+    if str(req.asset).lower() != USDC_ASSET.lower():
+        problems.append(f"asset {req.asset!r} is not the expected USDC {USDC_ASSET}")
+
+    if problems:
+        expected["refused"] = problems
+        return AbortResult(reason="; ".join(problems))
+    return None
 
 
 def _no_wallet(what: str) -> dict[str, Any] | None:
@@ -167,13 +227,54 @@ def _no_wallet(what: str) -> dict[str, Any] | None:
     }
 
 
-async def _paid_get(url: str, params: dict[str, str] | None = None) -> dict[str, Any]:
-    """GET a paid endpoint through the x402 payment client."""
+async def _paid_get(
+    tool: str, url: str, params: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """GET a paid endpoint through the x402 payment client, paying at most
+    TOOL_PRICES_USD[tool] to PAY_TO_ADDRESS."""
     payment_client = await _get_payment_client()
 
-    async with x402HttpxClient(payment_client) as http:
-        response = await http.get(url, params=params)
-        await response.aread()
+    price_usd = TOOL_PRICES_USD[tool]
+    expected = {
+        "price_usd": price_usd,
+        "amount": round(price_usd * 10**USDC_DECIMALS),
+        "refused": None,
+    }
+    token = _expected_payment.set(expected)
+    try:
+        async with x402HttpxClient(payment_client) as http:
+            response = await http.get(url, params=params)
+            await response.aread()
+    except Exception as exc:
+        # The SDK wraps the hook's abort in its own PaymentError. Its own
+        # pre-signing filters (spend_controls' default assets, the registered
+        # network) can also reject the 402 before the hook runs; both mean
+        # nothing was signed. Anything else is re-raised.
+        if expected["refused"] is None:
+            cause = exc
+            while cause is not None and not isinstance(cause, NoMatchingRequirementsError):
+                cause = cause.__cause__
+            if cause is None:
+                raise
+            expected["refused"] = [f"no payment requirement this client will sign: {cause}"]
+    finally:
+        _expected_payment.reset(token)
+
+    if expected["refused"] is not None:
+        return {
+            "error": "refused: price/payTo mismatch, nothing was paid",
+            "detail": expected["refused"],
+            "expected": {
+                "price_usd": price_usd,
+                "amount_base_units": str(expected["amount"]),
+                "payTo": PAY_TO_ADDRESS,
+                "network": CAIP2_NETWORK,
+                "asset": USDC_ASSET,
+            },
+            "charged": False,
+            "note": "The 402's payment requirements didn't match what this "
+            "tool expects, so nothing was signed or sent.",
+        }
 
     if response.status_code == 402:
         return {
@@ -224,7 +325,7 @@ async def crypto_sentiment(symbol: SymbolArg) -> dict[str, Any]:
         return msg
 
     symbol = symbol.upper().strip()
-    return await _paid_get(f"{API_URL}/sentiment/{symbol}")
+    return await _paid_get("crypto_sentiment", f"{API_URL}/sentiment/{symbol}")
 
 
 @mcp.tool()
@@ -252,7 +353,9 @@ async def get_hourly_history(
 
     symbol = symbol.upper().strip()
     params = {k: v for k, v in (("start", start), ("end", end)) if v is not None}
-    return await _paid_get(f"{API_URL}/history/{symbol}", params or None)
+    return await _paid_get(
+        "get_hourly_history", f"{API_URL}/history/{symbol}", params or None
+    )
 
 
 def _unsupported(symbol: str) -> dict[str, Any]:
