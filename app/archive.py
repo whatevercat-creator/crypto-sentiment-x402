@@ -120,6 +120,56 @@ def _gaps(hours: set, first: datetime, last: datetime) -> list:
     ]
 
 
+COVERAGE_WINDOW = timedelta(days=7)
+COVERAGE_NOTE = (
+    "coverage_7d_pct: the share of a symbol's logged hours in the last 7 days "
+    "with at least one matching headline (sample_size > 0); null with no "
+    "readings in that time. Low-coverage coins often get \"insufficient recent "
+    "news\" from /sentiment (not charged), and a /history range in which every "
+    "hour had zero headlines is refused with a 404 (not charged)."
+)
+
+
+def coverage_7d(now: Optional[datetime] = None) -> dict:
+    """Per symbol with readings in the last 7 days: how many logged hours
+    there were (hours_logged_7d), how many of them had at least one matching
+    headline (sample_size > 0; hours_with_headlines_7d) and that share as a
+    percentage (coverage_7d_pct). Symbols with no readings in the window
+    aren't in the result; coverage_for() fills them in."""
+    now = now or datetime.now(timezone.utc)
+    since = now - COVERAGE_WINDOW
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT symbol, observed_at, sample_size FROM sentiment_hourly WHERE observed_at >= ?",
+            (since.isoformat(),),
+        ).fetchall()
+    logged: dict = {}
+    with_headlines: dict = {}
+    for symbol, observed_at, sample_size in rows:
+        observed = _parse_ts(observed_at)
+        if observed < since or observed > now:
+            continue
+        hour = _hour(observed)
+        logged.setdefault(symbol, set()).add(hour)
+        if (sample_size or 0) > 0:
+            with_headlines.setdefault(symbol, set()).add(hour)
+    return {symbol: _coverage(len(with_headlines.get(symbol, ())), len(hours)) for symbol, hours in logged.items()}
+
+
+def _coverage(with_headlines: int, logged: int) -> dict:
+    return {
+        "hours_with_headlines_7d": with_headlines,
+        "hours_logged_7d": logged,
+        "coverage_7d_pct": round(100 * with_headlines / logged, 1) if logged else None,
+    }
+
+
+def coverage_for(symbol: str, coverage: dict) -> dict:
+    """A symbol's coverage_7d() entry; zeros and a null percentage when it
+    has no readings in the last 7 days."""
+    return coverage.get(symbol) or _coverage(0, 0)
+
+
 def archive_summary(now: Optional[datetime] = None) -> dict:
     """What the archive holds, per symbol. Missing hours run from a symbol's
     first reading to the last hour it should have by now: the current hour
@@ -148,6 +198,7 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
         entry["first"] = entry["first"] or observed
         entry["last"] = observed
 
+    coverage = coverage_7d(now)
     symbols = {}
     for symbol in sorted(per_symbol, key=lambda s: (s not in HOURLY_SYMBOLS, s)):
         e = per_symbol[symbol]
@@ -164,6 +215,7 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
             "window_rows": e["windowed"],
             "missing_hours": sum(g["hours"] for g in missing),
             "missing": missing,
+            **coverage_for(symbol, coverage),
         }
 
     return {
@@ -174,6 +226,7 @@ def archive_summary(now: Optional[datetime] = None) -> dict:
         "recording": RECORDING_NOTE,
         "methodology": MATCHER_NOTE,
         "average_compound_note": WINDOW_NOTE,
+        "coverage_note": COVERAGE_NOTE,
         "symbols_logged_now": list(HOURLY_SYMBOLS),
         "symbols": symbols,
         "total_rows": sum(s["rows"] for s in symbols.values()),
@@ -261,6 +314,13 @@ def hourly_rows(symbol: Optional[str] = None, start: Optional[datetime] = None, 
             entry = {"symbol": row[0], **entry}
         out.append(entry)
     return out
+
+
+def no_headlines(rows: list) -> bool:
+    """True when there are rows and every one has sample_size 0: no matching
+    headlines in any hour, so no sentiment to sell. A null sample_size isn't
+    0 and keeps the range sellable."""
+    return bool(rows) and all(r["sample_size"] == 0 for r in rows)
 
 
 def history_payload(symbol: str, start: datetime, end: datetime) -> dict:
