@@ -37,13 +37,15 @@ def test_every_tool_is_covered():
 
 @pytest.mark.parametrize("name", sorted(FREE))
 def test_free_tool_annotations(name):
+    """list_supported_coins answers from a local list (closed world); the
+    other free tools call the live API."""
     wire = _wire(_tools()[name])
     assert wire["title"] == FREE[name]
     assert wire["annotations"] == {
         "readOnlyHint": True,
         "idempotentHint": True,
         "destructiveHint": False,
-        "openWorldHint": True,
+        "openWorldHint": name != "list_supported_coins",
     }
 
 
@@ -87,6 +89,13 @@ def test_price_quote_description():
     assert "insufficient recent news" in d and "not charged" in d
     # The network/asset/payTo listing was dropped; the response carries them.
     assert "payTo" not in d
+
+
+def test_list_supported_coins_description():
+    d = " ".join(_tools()["list_supported_coins"].description.split())
+    assert "rejected by those tools' input schema" in d
+    assert "refused by the API" not in d
+    assert "no network call" in d
 
 
 def test_archive_coverage_description():

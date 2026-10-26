@@ -135,7 +135,14 @@ HistorySymbolArg = Annotated[
 FREE_TOOLS = ("list_supported_coins", "archive_coverage", "price_quote")
 
 # Tool annotations. Free tools only read; each paid call charges the wallet,
-# so it isn't read-only or idempotent. All of them reach the live API.
+# so it isn't read-only or idempotent. All but list_supported_coins (a
+# local list, no network call) reach the live API.
+LOCAL_TOOL_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=True,
+    idempotent_hint=True,
+    destructive_hint=False,
+    open_world_hint=False,
+)
 FREE_TOOL_ANNOTATIONS = ToolAnnotations(
     read_only_hint=True,
     idempotent_hint=True,
@@ -417,14 +424,15 @@ def _decode_challenge(response: httpx.Response) -> dict | None:
         return None
 
 
-@mcp.tool(title="List Supported Coins", annotations=FREE_TOOL_ANNOTATIONS)
+@mcp.tool(title="List Supported Coins", annotations=LOCAL_TOOL_ANNOTATIONS)
 async def list_supported_coins() -> dict[str, Any]:
     """
     Free: list the 24 ticker symbols crypto_sentiment supports, with names.
 
     Useful before choosing a symbol for crypto_sentiment or price_quote.
-    No wallet needed and no network call. Any other symbol is refused by the
-    API before anything is charged.
+    No wallet needed and no network call. Any other symbol is rejected by
+    those tools' input schema before a request is sent, so nothing is
+    charged.
     """
     return {
         "count": len(SUPPORTED_COINS),
@@ -444,8 +452,7 @@ async def archive_coverage() -> dict[str, Any]:
     hours_logged_7d). Check it before get_hourly_history to pick a symbol and
     range with data: low-coverage coins often get no_headlines_in_range from
     get_hourly_history or "insufficient recent news" from crypto_sentiment,
-    both refused and not charged. Readings are recorded live and never
-    backfilled.
+    both refused and not charged.
     """
     async with httpx.AsyncClient(timeout=60) as http:
         response = await http.get(

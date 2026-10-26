@@ -15,8 +15,8 @@ HTTP API itself isn't versioned here.
 - MCP tool annotations and titles on every tool. Free tools
   (`list_supported_coins`, `archive_coverage`, `price_quote`) are read-only
   and idempotent; paid tools (`crypto_sentiment`, `get_hourly_history`) are
-  neither, since each call charges. None are destructive; all are
-  open-world.
+  neither, since each call charges. None are destructive; all but
+  `list_supported_coins` (a local list, no network call) are open-world.
 - `get_hourly_history`'s `symbol` argument now has a schema description.
 - No change to prices, payTo, the payment guard or any API behavior.
 
