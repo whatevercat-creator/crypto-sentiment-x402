@@ -18,6 +18,8 @@ HTTP API itself isn't versioned here.
   neither, since each call charges. None are destructive; all but
   `list_supported_coins` (a local list, no network call) are open-world.
 - `get_hourly_history`'s `symbol` argument now has a schema description.
+- The paid tools' no-wallet answer (no CDP keys set) now includes
+  `charged: false`, like the other refusals.
 - No change to prices, payTo, the payment guard or any API behavior.
 
 ## 0.1.5
