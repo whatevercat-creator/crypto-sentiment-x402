@@ -60,6 +60,7 @@ def test_no_cdp_vars_returns_friendly_message(monkeypatch):
 
     assert "https://portal.cdp.coinbase.com" in out["detail"]
     assert "funded CDP wallet" in out["detail"]
+    assert out["charged"] is False
     assert out["free_tools"] == ["list_supported_coins", "archive_coverage", "price_quote"]
 
 
@@ -164,6 +165,7 @@ def test_hourly_history_without_cdp_vars_returns_friendly_message(monkeypatch):
 
     assert out["error"] == "no wallet configured"
     assert "https://portal.cdp.coinbase.com" in out["detail"]
+    assert out["charged"] is False
     assert out["free_tools"] == ["list_supported_coins", "archive_coverage", "price_quote"]
 
 

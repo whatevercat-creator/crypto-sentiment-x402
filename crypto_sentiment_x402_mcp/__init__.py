@@ -252,6 +252,7 @@ def _no_wallet(what: str) -> dict[str, Any] | None:
         "CDP_API_KEY_ID and CDP_API_KEY_SECRET in this MCP server's "
         "environment (get a key at https://portal.cdp.coinbase.com) and "
         "fund the wallet with USDC (+ a little ETH for gas) on Base.",
+        "charged": False,
         "free_tools": list(FREE_TOOLS),
         "hint": "list_supported_coins, archive_coverage and price_quote "
         "are free and need no wallet.",
