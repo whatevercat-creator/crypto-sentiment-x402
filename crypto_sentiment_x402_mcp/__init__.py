@@ -50,6 +50,7 @@ import httpx
 from cdp import CdpClient
 from cdp.evm_local_account import EvmLocalAccount
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 from pydantic import Field
 from x402 import AbortResult, NoMatchingRequirementsError, x402Client
 from x402.http.clients import x402HttpxClient
@@ -122,8 +123,31 @@ TimeArg = Annotated[
         "and defaults to now. At most 30 days per call."
     ),
 ]
+# get_hourly_history takes any string (the API validates it); description only.
+HistorySymbolArg = Annotated[
+    str,
+    Field(
+        description="Crypto ticker, e.g. BTC; uppercased and trimmed before "
+        "the request. archive_coverage lists the logged symbols."
+    ),
+]
 
 FREE_TOOLS = ("list_supported_coins", "archive_coverage", "price_quote")
+
+# Tool annotations. Free tools only read; each paid call charges the wallet,
+# so it isn't read-only or idempotent. All of them reach the live API.
+FREE_TOOL_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=True,
+    idempotent_hint=True,
+    destructive_hint=False,
+    open_world_hint=True,
+)
+PAID_TOOL_ANNOTATIONS = ToolAnnotations(
+    read_only_hint=False,
+    idempotent_hint=False,
+    destructive_hint=False,
+    open_world_hint=True,
+)
 
 # USDC uses 6 decimals on Base and Base Sepolia; 402 amounts are base units.
 USDC_DECIMALS = 6
@@ -301,25 +325,28 @@ async def _paid_get(
     return response.json()
 
 
-@mcp.tool()
+@mcp.tool(title="Current Crypto Sentiment", annotations=PAID_TOOL_ANNOTATIONS)
 async def crypto_sentiment(symbol: SymbolArg) -> dict[str, Any]:
     """
-    Get real-time aggregate crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL).
+    Current news sentiment for one crypto ticker. Paid: $0.01 in USDC on Base
+    per call, from this MCP server's own CDP wallet.
 
-    Gives the current reading; get_hourly_history gives past hourly readings.
-    Unsupported coins and coins with too little recent news are refused and
-    not charged.
+    symbol must be exactly one of the 24 uppercase tickers from
+    list_supported_coins (e.g. BTC). Lowercase ("btc") or any other symbol is
+    rejected by the input schema before a request is sent, so nothing is
+    charged.
 
-    Pulls from 9 crypto news RSS outlets (CoinDesk, Cointelegraph, Decrypt,
-    Bitcoin Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The
-    Defiant) and the Fear & Greed Index, scored with VADER plus a crypto
-    slang lexicon over headlines from the last 72 hours, weighted toward the
-    newest.
-    Returns a bullish/bearish/neutral label (or "insufficient recent news"),
-    a compound score, a per-source breakdown and the headlines behind it.
+    Scores headlines from the last 72 hours across 9 crypto news RSS outlets
+    (VADER plus a crypto slang lexicon, weighted toward the newest) alongside
+    the Fear & Greed Index. Returns a bullish/bearish/neutral label, a
+    compound score (-1 to 1), sample sizes, the news and Fear & Greed values,
+    and up to 5 headlines that moved the score.
 
-    Each call pays this service's advertised x402 price in USDC on Base,
-    charged to this MCP server's own configured wallet.
+    Low-coverage coins: when recent headlines are too few (effective sample
+    size below 5), the API refuses with HTTP 422 "insufficient recent news",
+    returned here as an error with charged: false. archive_coverage shows each
+    coin's coverage_7d_pct. Without CDP keys the tool returns a no-wallet
+    message and pays nothing. For past readings use get_hourly_history.
     """
     if (msg := _no_wallet("sentiment reading")) is not None:
         return msg
@@ -328,25 +355,32 @@ async def crypto_sentiment(symbol: SymbolArg) -> dict[str, Any]:
     return await _paid_get("crypto_sentiment", f"{API_URL}/sentiment/{symbol}")
 
 
-@mcp.tool()
+@mcp.tool(title="Hourly Sentiment History", annotations=PAID_TOOL_ANNOTATIONS)
 async def get_hourly_history(
-    symbol: str, start: TimeArg = None, end: TimeArg = None
+    symbol: HistorySymbolArg, start: TimeArg = None, end: TimeArg = None
 ) -> dict[str, Any]:
     """
-    Get past hourly sentiment readings for one symbol (GET /history/{symbol}).
+    Past hourly sentiment readings for one coin, oldest first. Paid: $0.05 in
+    USDC on Base per call, from this MCP server's own CDP wallet.
 
-    Gives past readings, oldest first; crypto_sentiment gives the current
-    one, and archive_coverage shows which coins have hourly history and
-    since when. Readings are recorded live at the top of each UTC hour and
-    never backfilled, so a missed hour stays missing.
+    Range: omit both bounds for the 7 days up to now. With only end, the range
+    starts 7 days before it; with only start, it runs to now. A reading is
+    included when start <= observed_at < end. The span can be at most 30 days,
+    so split longer periods into several calls. Readings are recorded live at
+    the top of each UTC hour and never backfilled; a missed hour stays missing.
 
-    Defaults to the last 7 days; at most 30 days per call. The symbol has to
-    be one archive_coverage lists as logged. Unlogged symbols, invalid
-    ranges and ranges with no readings are refused and not charged; the
-    refusal comes back as an error with the API's explanation.
+    Refused and not charged (returned as an error with charged: false):
+    - 400: malformed symbol or time, start not before end, or a span over 30 days.
+    - 404: symbol not in the archive.
+    - 404 no_readings_in_range: no readings in the range (gives first_reading).
+    - 404 no_headlines_in_range: every hour in the range had zero matching
+      headlines (gives rows_in_range and coverage_7d_pct).
+    A range with at least one hour of headlines returns all its rows.
 
-    Each call pays $0.05 in USDC on Base, charged to this MCP server's own
-    configured wallet.
+    For low-coverage coins, check archive_coverage first: its coverage_7d_pct
+    and first_reading show where data exists. Without CDP keys the tool returns
+    a no-wallet message and pays nothing. For the current reading use
+    crypto_sentiment.
     """
     if (msg := _no_wallet("hourly history")) is not None:
         return msg
@@ -383,7 +417,7 @@ def _decode_challenge(response: httpx.Response) -> dict | None:
         return None
 
 
-@mcp.tool()
+@mcp.tool(title="List Supported Coins", annotations=FREE_TOOL_ANNOTATIONS)
 async def list_supported_coins() -> dict[str, Any]:
     """
     Free: list the 24 ticker symbols crypto_sentiment supports, with names.
@@ -398,15 +432,20 @@ async def list_supported_coins() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@mcp.tool(title="Archive Coverage", annotations=FREE_TOOL_ANNOTATIONS)
 async def archive_coverage() -> dict[str, Any]:
     """
-    Free: what the hourly sentiment archive holds (GET /archive).
+    Free: what the hourly sentiment archive holds (GET /archive). No wallet
+    needed.
 
-    Shows which coins have hourly history and since when, which is useful
-    before a get_hourly_history call. Per symbol: first reading, row counts
-    and missing hours. Readings are recorded live and never backfilled. No
-    wallet needed; nothing is paid.
+    Per symbol: first and latest reading, row counts, missing hours, and
+    coverage_7d_pct, the share of the last 7 days' logged hours that had at
+    least one matching headline (with hours_with_headlines_7d and
+    hours_logged_7d). Check it before get_hourly_history to pick a symbol and
+    range with data: low-coverage coins often get no_headlines_in_range from
+    get_hourly_history or "insufficient recent news" from crypto_sentiment,
+    both refused and not charged. Readings are recorded live and never
+    backfilled.
     """
     async with httpx.AsyncClient(timeout=60) as http:
         response = await http.get(
@@ -420,15 +459,23 @@ async def archive_coverage() -> dict[str, Any]:
     return response.json()
 
 
-@mcp.tool()
+@mcp.tool(title="Price Quote", annotations=FREE_TOOL_ANNOTATIONS)
 async def price_quote(symbol: SymbolArg) -> dict[str, Any]:
     """
-    Free: what one crypto_sentiment call for a symbol would cost, and who it pays.
+    Free: the live x402 price of one crypto_sentiment call, read from an
+    unpaid request's 402 response. Nothing is signed; no wallet needed.
 
-    Shows the cost and payTo address before a paid call. Makes one unpaid
-    request and reads the x402 payment requirements from the 402 response:
-    price in USD, network, asset and payTo address. Nothing is paid or
-    signed, and no wallet is needed.
+    When not to use it: prices are fixed at $0.01 per crypto_sentiment call
+    and $0.05 per get_hourly_history call, so there's no need to call this
+    before every paid call. Use it to confirm the live price and payment
+    requirements, e.g. before funding a wallet. It quotes crypto_sentiment
+    only.
+
+    symbol must be exactly one of the 24 uppercase tickers from
+    list_supported_coins; lowercase or any other symbol is rejected by the
+    input schema before a request is sent. A low-coverage coin still gets a
+    quote; a crypto_sentiment call for it may then be refused with
+    "insufficient recent news" (not charged).
     """
     symbol = symbol.upper().strip()
     if symbol not in SUPPORTED_COINS:

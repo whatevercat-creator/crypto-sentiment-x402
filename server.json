@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.whatevercat-creator/crypto-sentiment-x402",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Ticker sentiment from 9 crypto news outlets + Fear & Greed over 72h, with the headlines behind it",
   "repository": {
     "url": "https://github.com/whatevercat-creator/crypto-sentiment-x402",
@@ -12,7 +12,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "crypto-sentiment-x402-mcp",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "runtimeArguments": [
