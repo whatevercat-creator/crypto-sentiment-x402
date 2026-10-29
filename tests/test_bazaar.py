@@ -39,6 +39,15 @@ def test_402_extension_carries_request_symbol(client):  # noqa: F811
     assert ext["routeTemplate"] == "/sentiment/:symbol"
 
 
+def test_402_method_enum_unchanged(client):  # noqa: F811
+    # x402 2.26.0 narrows this to ["GET"]; requirements.txt pins 2.25.0 so the
+    # live 402 stays byte-identical to the indexed one.
+    r = client.get("/sentiment/BTC")
+    ext = json.loads(base64.b64decode(r.headers["payment-required"]))["extensions"]["bazaar"]
+    method = ext["schema"]["properties"]["input"]["properties"]["method"]
+    assert method["enum"] == ["GET", "HEAD", "DELETE"]
+
+
 def test_402_mirrors_challenge_without_www_authenticate(client):  # noqa: F811
     r = client.get("/sentiment/BTC")
     assert r.status_code == 402
