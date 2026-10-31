@@ -34,14 +34,26 @@ in **test mode** until you're ready to charge real cards):
    copy its Price ID (`price_...`) into `STRIPE_PRICE_ID_STARTER`.
 2. Create a product "Pro" with a recurring monthly price of $59 → copy its
    Price ID into `STRIPE_PRICE_ID_PRO`.
-3. Copy your test **Secret key** (Developers → API keys) into
+3. Create a product "Data Access" with a recurring monthly price of $29 →
+   copy its Price ID into `STRIPE_PRICE_ID_DATA`.
+4. Copy your test **Secret key** (Developers → API keys) into
    `STRIPE_SECRET_KEY`.
+
+These price IDs are how the webhook recognises this service's plans. The
+Stripe account also sells other things, so a checkout gets a key only if it is
+in subscription mode and its prices are one of these three; everything else is
+logged as ignored. A plan whose price ID isn't set can't be recognised, so its
+buyers would get no key (the log shows `plan prices not configured`). Changing
+a plan's price means updating its env var.
 
 ## 2. Set up the webhook
 
 The webhook is what actually provisions an API key after checkout — without
 it, `checkout.session.completed` never reaches this app and no key gets
-created.
+created. Afterwards it keeps the key in step with the subscription: a key
+works while the subscription is `active` or `trialing` and is turned off in
+any other state, including `past_due`. It works again if the subscription
+recovers, and follows a change of plan.
 
 1. Developers → Webhooks → Add endpoint → URL:
    `{APP_BASE_URL}/billing/webhook`
@@ -73,7 +85,7 @@ after your next deploy.
 
 ```bash
 # 1. Free tier, no Stripe needed:
-curl -X POST $APP_BASE_URL/billing/signup-free -H 'Content-Type: application/json' -d '{"email":"you@example.com"}'
+curl -X POST $APP_BASE_URL/billing/signup-free -H 'Content-Type: application/json' -d '{"email":"you@yourdomain.com"}'
 # -> {"api_key": "csk_...", ...}
 
 curl $APP_BASE_URL/v1/sentiment/BTC -H "X-API-Key: csk_..."
@@ -108,6 +120,22 @@ they used at checkout. To replace their key:
 
 The key is replaced in place: the old key stops working immediately, and the
 plan, Stripe subscription, this month's usage and alert watches carry over.
+
+## Reconciling keys with Stripe
+
+`app/maintenance/reconcile_keys.py` is a one-off for keys that drifted from
+Stripe. Run it in the Render Shell, where the database and live Stripe key are:
+
+```bash
+python -m app.maintenance.reconcile_keys           # dry run: writes nothing
+python -m app.maintenance.reconcile_keys --apply
+```
+
+For every non-free key it asks Stripe (read-only) for an active subscription
+to one of this service's plans. Keys without one are marked canceled, and
+watches of keys that aren't active are marked inactive. It prints only counts
+and the first 6 characters of keys. A key it couldn't check is left alone, and
+it never turns a canceled key back on: those are listed for you to look at.
 
 ## Notes / what's deliberately left out of this first pass
 

@@ -53,14 +53,23 @@ curl $APP_BASE_URL/alerts/history -H "X-API-Key: csk_..."
 ```
 
 `threshold` is optional on `POST /alerts/watch` — omit it to use
-`ALERT_THRESHOLD_DEFAULT`.
+`ALERT_THRESHOLD_DEFAULT`. It must be above 0 and at most 2 (scores run from
+-1 to 1).
+
+A watch only fires while its API key is active. If a subscription lapses its
+watches stop, and they resume if it recovers.
 
 ## Delivery channels
 
-- **`webhook`** — `channel_target` is any URL. Gets a `POST` with a JSON
+- **`webhook`** — `channel_target` is a public `https` URL of at most 2048
+  characters. Gets a `POST` with a JSON
   body: `{symbol, old_label, new_label, old_compound, new_compound, timestamp}`.
   Works with Zapier, your own backend, anything that accepts a POST.
-- **`discord`** — `channel_target` is a Discord webhook URL (channel
+  Private, local and cloud-metadata addresses are refused when the watch is
+  created and again at every send. Redirects aren't followed, and each
+  delivery has 10 seconds in total. Only the response status is read.
+- **`discord`** — `channel_target` is a Discord webhook URL, starting
+  `https://discord.com/api/webhooks/` (channel
   settings → Integrations → Webhooks → New Webhook → Copy URL). Posts a
   formatted message directly into that channel.
 - **`telegram`** — `channel_target` is the destination chat ID.
@@ -73,7 +82,8 @@ curl $APP_BASE_URL/alerts/history -H "X-API-Key: csk_..."
 ## Notes / what's deliberately left out of this first pass
 
 - **No retry on failed delivery.** A failed webhook/Discord/Telegram send
-  is logged in `alert_events` (check `/alerts/history`) but not retried —
+  is logged in `alert_events` (check `/alerts/history`, which shows a short
+  reason such as `delivery failed: HTTP 404`) but not retried —
   the next real sentiment shift is the next attempt. Add retry/backoff if
   delivery reliability matters more than simplicity for you.
 - **No signature on outgoing webhooks.** If a receiver needs to verify a

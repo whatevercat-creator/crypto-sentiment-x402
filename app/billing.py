@@ -19,6 +19,7 @@ Env vars (see .env.example / BILLING.md):
   STRIPE_WEBHOOK_SECRET    - signing secret for the /billing/webhook endpoint
   STRIPE_PRICE_ID_STARTER  - Stripe Price ID for the Starter product
   STRIPE_PRICE_ID_PRO      - Stripe Price ID for the Pro product
+  STRIPE_PRICE_ID_DATA     - Stripe Price ID for the Data Access product
   APP_BASE_URL             - public base URL of this deployment, used to
                               build Stripe checkout redirect URLs
   BILLING_DB_PATH          - sqlite file path (default "billing.db"; on
@@ -32,20 +33,26 @@ swap the sqlite3 calls below for a real Postgres connection -- the schema
 is trivial to port.
 """
 
+import logging
 import os
 import secrets
 import sqlite3
+import threading
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from urllib.parse import parse_qs
 
 import stripe
+from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
 from app.home import render_api_key_page, render_message_page
+
+logger = logging.getLogger("app.billing")
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
@@ -89,6 +96,48 @@ TIERS = {
         "dataset_access": True,
     },
 }
+
+
+# The Stripe subscription statuses that keep a key working. Anything else
+# (past_due, unpaid, paused, canceled, ...) turns the key off until Stripe
+# says otherwise.
+ACTIVE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
+
+
+def plan_tiers_by_price() -> dict:
+    """{Stripe price ID: tier} for this service's plans. The same Stripe
+    account sells other products, so this is what tells them apart."""
+    plans = {}
+    for tier, cfg in TIERS.items():
+        price_id = os.environ.get(cfg["price_id_env"], "") if cfg["price_id_env"] else ""
+        if price_id:
+            plans[price_id] = tier
+    return plans
+
+
+def missing_price_envs() -> list:
+    """Paid plans' price env vars that aren't set: their buyers can't be
+    recognised until they are."""
+    return [
+        cfg["price_id_env"] for cfg in TIERS.values()
+        if cfg["price_id_env"] and not os.environ.get(cfg["price_id_env"])
+    ]
+
+
+def tier_for_prices(price_ids: list) -> Optional[str]:
+    """The tier these prices buy, or None unless every one is a plan price
+    and together they name exactly one tier. Never guesses."""
+    plans = plan_tiers_by_price()
+    tiers = {plans.get(price_id) for price_id in price_ids}
+    return tiers.pop() if len(tiers) == 1 else None
+
+
+def tier_for_items(items: Optional[dict]) -> Optional[str]:
+    """tier_for_prices for a Stripe list of line items or subscription items."""
+    items = items or {}
+    if items.get("has_more"):
+        return None
+    return tier_for_prices([(i.get("price") or {}).get("id") for i in items.get("data") or []])
 
 
 def _is_form_post(request: Request) -> bool:
@@ -218,6 +267,61 @@ def pricing():
     }
 
 
+# Bots copying the docs sign up with these; they're reserved, nobody's real
+# address. Subdomains count too.
+_SAMPLE_EMAIL_DOMAINS = ("example.com", "example.org", "example.net")
+
+# Per-IP cap on free keys issued. In memory: one instance, and a restart
+# forgetting it is harmless.
+SIGNUP_LIMIT = 5
+SIGNUP_WINDOW_SECONDS = 3600
+_SIGNUP_TRACKED_IPS_MAX = 10_000
+_signup_hits: dict = {}
+_signup_lock = threading.Lock()
+
+
+def _clean_signup_email(raw: str) -> str:
+    """The address to store, or 400. Syntax only: no DNS lookup."""
+    try:
+        checked = validate_email(raw.strip(), check_deliverability=False)
+    except EmailNotValidError:
+        raise HTTPException(400, "Enter a valid email address.")
+    domain = checked.ascii_domain.lower()
+    if any(domain == d or domain.endswith("." + d) for d in _SAMPLE_EMAIL_DOMAINS):
+        logger.info("[billing] free signup refused: sample email domain")
+        raise HTTPException(400, "That's a sample address from the docs. Use your own email address.")
+    return checked.normalized
+
+
+def _client_ip(request: Request) -> str:
+    # Live traffic comes through Cloudflare, which overwrites this header, so
+    # a caller can't choose it. request.client isn't good enough on its own:
+    # uvicorn fills it from X-Forwarded-For, which a caller can set.
+    ip = request.headers.get("cf-connecting-ip")
+    return ip or (request.client.host if request.client else "unknown")
+
+
+def _check_signup_rate(request: Request) -> None:
+    ip = _client_ip(request)
+    now = time.monotonic()
+    cutoff = now - SIGNUP_WINDOW_SECONDS
+    with _signup_lock:
+        recent = [t for t in _signup_hits.get(ip, []) if t > cutoff]
+        if len(recent) >= SIGNUP_LIMIT:
+            _signup_hits[ip] = recent
+            raise HTTPException(
+                429,
+                "Too many free keys from this address. Try again later.",
+                headers={"Retry-After": str(int(recent[0] - cutoff) + 1)},
+            )
+        recent.append(now)
+        _signup_hits[ip] = recent
+        if len(_signup_hits) > _SIGNUP_TRACKED_IPS_MAX:
+            for tracked, hits in list(_signup_hits.items()):
+                if hits[-1] <= cutoff:
+                    del _signup_hits[tracked]
+
+
 def _issue_free_key(email: str) -> dict:
     key = _new_key()
     now = _now_iso()
@@ -238,8 +342,10 @@ def _issue_free_key(email: str) -> dict:
 
 
 @router.post("/signup-free", openapi_extra={"security": []})
-def signup_free(body: FreeSignup):
-    return _issue_free_key(body.email)
+def signup_free(body: FreeSignup, request: Request):
+    email = _clean_signup_email(body.email)
+    _check_signup_rate(request)
+    return _issue_free_key(email)
 
 
 def _checkout_url(tier: str) -> str:
@@ -275,12 +381,12 @@ async def _form_fields(request: Request) -> dict:
 
 
 async def _signup_free_form(request: Request):
-    email = (await _form_fields(request)).get("email", "").strip()
-    if not email or "@" not in email:
-        return HTMLResponse(
-            render_message_page("Enter your email", "Go back and enter an email address to get a free key."),
-            status_code=400,
-        )
+    try:
+        email = _clean_signup_email((await _form_fields(request)).get("email", ""))
+        _check_signup_rate(request)
+    except HTTPException as e:
+        title = "Too many requests" if e.status_code == 429 else "Enter your email"
+        return HTMLResponse(render_message_page(title, str(e.detail)), status_code=e.status_code, headers=e.headers)
     result = _issue_free_key(email)
     return HTMLResponse(
         render_api_key_page(
@@ -437,40 +543,109 @@ async def stripe_webhook(request: Request):
     # .get() calls below work regardless of stripe-python's object shape.
     data = event["data"]["object"].to_dict()
 
-    if event_type == "checkout.session.completed":
-        tier = (data.get("metadata") or {}).get("tier", "starter")
-        customer_id = data.get("customer")
-        subscription_id = data.get("subscription")
-        email = (data.get("customer_details") or {}).get("email")
-        key = _new_key()
-        now = _now_iso()
-        with _db() as conn:
-            conn.execute(
-                "INSERT INTO api_keys "
-                "(api_key, email, tier, stripe_customer_id, stripe_subscription_id, "
-                "status, period_calls_used, period_start, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?)",
-                (key, email, tier, customer_id, subscription_id, now, now),
-            )
-
-    elif event_type == "customer.subscription.deleted":
-        customer_id = data.get("customer")
-        with _db() as conn:
-            conn.execute(
-                "UPDATE api_keys SET status = 'canceled' WHERE stripe_customer_id = ?",
-                (customer_id,),
-            )
-
-    elif event_type == "customer.subscription.updated":
-        customer_id = data.get("customer")
-        status = "active" if data.get("status") == "active" else "canceled"
-        with _db() as conn:
-            conn.execute(
-                "UPDATE api_keys SET status = ? WHERE stripe_customer_id = ?",
-                (status, customer_id),
-            )
+    # A failed Stripe lookup answers 503 so Stripe redelivers the event.
+    try:
+        if event_type == "checkout.session.completed":
+            _provision_from_checkout(data)
+        elif event_type == "customer.subscription.deleted":
+            _sync_subscription(data.get("id"), deleted=True)
+        elif event_type == "customer.subscription.updated":
+            _sync_subscription(data.get("id"), deleted=False)
+    except stripe.StripeError as e:
+        logger.error("[billing] Stripe lookup failed for a %s event: %s", event_type, type(e).__name__)
+        raise HTTPException(503, "Could not confirm this event with Stripe.")
 
     return {"received": True}
+
+
+def _ignore_purchase(reason: str) -> None:
+    """Not one of this service's plans: no key. Reason only, so no customer
+    data reaches the logs."""
+    logger.info("[billing] checkout ignored: %s", reason)
+    missing = missing_price_envs()
+    if missing:
+        # Otherwise a real plan purchase is silently dropped here.
+        logger.error("[billing] plan prices not configured: %s", ",".join(missing))
+
+
+def _provision_from_checkout(event_session: dict) -> None:
+    """Create or upgrade the key for a completed checkout of one of this
+    service's plans. The price decides the tier: metadata can be set by
+    anyone creating a checkout on this account, and a Stripe event can be
+    redelivered late, so the session is fetched fresh."""
+    mode = event_session.get("mode")
+    if mode != "subscription":
+        _ignore_purchase(f"mode={mode}")
+        return
+
+    # Webhook events don't carry line_items.
+    session = stripe.checkout.Session.retrieve(
+        event_session.get("id"), expand=["line_items", "subscription"]
+    ).to_dict()
+
+    tier = tier_for_items(session.get("line_items"))
+    if tier is None:
+        _ignore_purchase("not one of this service's plan prices")
+        return
+    if session.get("payment_status") not in ("paid", "no_payment_required"):
+        _ignore_purchase(f"payment_status={session.get('payment_status')}")
+        return
+    subscription = session.get("subscription") or {}
+    if subscription.get("status") not in ACTIVE_SUBSCRIPTION_STATUSES:
+        _ignore_purchase(f"subscription status={subscription.get('status')}")
+        return
+
+    subscription_id = subscription.get("id")
+    now = _now_iso()
+    with _db() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM api_keys WHERE stripe_subscription_id = ?", (subscription_id,)
+        ).fetchone()
+        if existing:  # redelivered event: the key already exists
+            conn.execute(
+                "UPDATE api_keys SET tier = ?, status = 'active' WHERE stripe_subscription_id = ?",
+                (tier, subscription_id),
+            )
+            return
+        conn.execute(
+            "INSERT INTO api_keys "
+            "(api_key, email, tier, stripe_customer_id, stripe_subscription_id, "
+            "status, period_calls_used, period_start, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?)",
+            (
+                _new_key(), (session.get("customer_details") or {}).get("email"), tier,
+                session.get("customer"), subscription_id, now, now,
+            ),
+        )
+
+
+def _sync_subscription(subscription_id: Optional[str], deleted: bool) -> None:
+    """Make the keys on this subscription match Stripe. Matches on the
+    subscription, not the customer: the customer may hold other products.
+    Stripe doesn't guarantee event order, so an update re-reads the current
+    subscription rather than trusting the event's copy."""
+    with _db() as conn:
+        known = conn.execute(
+            "SELECT 1 FROM api_keys WHERE stripe_subscription_id = ?", (subscription_id,)
+        ).fetchone()
+    if not known:
+        logger.info("[billing] subscription event ignored: no key on this subscription")
+        return
+
+    status, tier = "canceled", None
+    if not deleted:
+        current = stripe.Subscription.retrieve(subscription_id).to_dict()
+        if current.get("status") in ACTIVE_SUBSCRIPTION_STATUSES:
+            status = "active"
+        tier = tier_for_items(current.get("items"))
+        if tier is None:
+            logger.warning("[billing] subscription moved to a non-plan price: tier left unchanged")
+
+    with _db() as conn:
+        conn.execute(
+            "UPDATE api_keys SET status = ?, tier = COALESCE(?, tier) WHERE stripe_subscription_id = ?",
+            (status, tier, subscription_id),
+        )
 
 
 def _check_api_key(conn, api_key: str) -> tuple:

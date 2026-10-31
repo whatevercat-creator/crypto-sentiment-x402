@@ -29,7 +29,9 @@ pin the poller to one of them or move it to a real scheduler/queue.
 """
 
 import asyncio
+import math
 import os
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -37,6 +39,10 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, field_validator
 
 from app.billing import API_KEY_SECURITY, _db, TIERS, get_key_info
+from app.outbound import (
+    ERROR_CONNECTION, ERROR_NOT_ALLOWED, ERROR_NOT_CONFIGURED, ERROR_TIMEOUT,
+    TargetNotAllowed, post_json, validate_target,
+)
 from app.sentiment_service import compute_sentiment_payload, require_supported_symbol
 from app.window import INSUFFICIENT_LABEL
 
@@ -47,6 +53,24 @@ DEFAULT_THRESHOLD = float(os.environ.get("ALERT_THRESHOLD_DEFAULT", "0.3"))
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
 VALID_CHANNELS = {"webhook", "discord", "telegram"}
+
+# Compound scores run from -1 to 1, so no move can be bigger than 2, and a
+# stored 0 would mean "use the default" (see _poll_once).
+MAX_THRESHOLD = 2.0
+
+# Rows written before delivery errors were made generic can hold raw
+# exception text. /alerts/history only passes on the generic forms.
+_GENERIC_ERROR = re.compile(
+    "|".join(re.escape(e) for e in (ERROR_TIMEOUT, ERROR_CONNECTION, ERROR_NOT_ALLOWED, ERROR_NOT_CONFIGURED))
+    + r"|delivery failed: HTTP \d{3}"
+)
+
+# Joined into every query that picks watches to fire: a watch only fires
+# while its key is active.
+ACTIVE_WATCHES_SQL = (
+    "watches w JOIN api_keys k ON k.api_key = w.api_key "
+    "WHERE w.status = 'active' AND k.status = 'active'"
+)
 
 
 def init_alerts_db() -> None:
@@ -126,6 +150,13 @@ def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Ke
             "TELEGRAM_BOT_TOKEN) -- use 'webhook' or 'discord' instead.",
         )
 
+    if not (math.isfinite(body.threshold) and 0 < body.threshold <= MAX_THRESHOLD):
+        raise HTTPException(400, f"threshold must be above 0 and at most {MAX_THRESHOLD:g}.")
+    try:
+        validate_target(body.channel_type, body.channel_target)
+    except TargetNotAllowed as e:
+        raise HTTPException(400, str(e))
+
     # A watch on a symbol this API doesn't score would never fire.
     symbol = require_supported_symbol(body.symbol, "alerts")
 
@@ -200,7 +231,13 @@ def alert_history(x_api_key: str = Header(..., alias="X-API-Key"), limit: int = 
             """,
             (x_api_key, limit),
         ).fetchall()
-    return {"events": [dict(r) for r in rows]}
+    return {"events": [{**dict(r), "error": _public_error(r["error"])} for r in rows]}
+
+
+def _public_error(error):
+    if not error or _GENERIC_ERROR.fullmatch(error):
+        return error
+    return "delivery failed"
 
 
 def _format_message(symbol: str, old_label, new_label, old_compound, new_compound) -> str:
@@ -215,28 +252,24 @@ async def _deliver(watch: dict, message: str, event_payload: dict) -> tuple[bool
     channel_type = watch["channel_type"]
     target = watch["channel_target"]
     try:
-        async with httpx.AsyncClient(timeout=10) as http:
-            if channel_type == "webhook":
-                resp = await http.post(target, json=event_payload)
-            elif channel_type == "discord":
-                resp = await http.post(target, json={"content": message})
-            elif channel_type == "telegram":
-                resp = await http.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                    json={"chat_id": target, "text": message},
-                )
-            else:
-                return False, f"unknown channel_type {channel_type!r}"
-            resp.raise_for_status()
-        return True, ""
-    except Exception as e:
-        return False, str(e)[:500]
+        if channel_type == "telegram":
+            if not TELEGRAM_BOT_TOKEN:
+                return False, ERROR_NOT_CONFIGURED
+            url = httpx.URL(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage")
+            return await post_json(url, {"chat_id": target, "text": message})
+        url = validate_target(channel_type, target)
+        body = {"content": message} if channel_type == "discord" else event_payload
+        return await post_json(url, body)
+    except TargetNotAllowed:
+        return False, ERROR_NOT_ALLOWED
+    except Exception:  # never let exception text out: see app/outbound.py
+        return False, ERROR_CONNECTION
 
 
 async def _poll_once() -> None:
     with _db() as conn:
         symbol_rows = conn.execute(
-            "SELECT DISTINCT symbol FROM watches WHERE status = 'active'"
+            f"SELECT DISTINCT w.symbol FROM {ACTIVE_WATCHES_SQL}"
         ).fetchall()
     symbols = [r["symbol"] for r in symbol_rows]
 
@@ -256,7 +289,7 @@ async def _poll_once() -> None:
 
         with _db() as conn:
             watches = conn.execute(
-                "SELECT * FROM watches WHERE symbol = ? AND status = 'active'",
+                f"SELECT w.* FROM {ACTIVE_WATCHES_SQL} AND w.symbol = ?",
                 (symbol,),
             ).fetchall()
 
