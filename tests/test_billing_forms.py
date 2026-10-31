@@ -84,14 +84,14 @@ def test_subscribe_form_without_stripe_shows_page(client, monkeypatch):  # noqa:
 
 
 def test_free_form_shows_key_page(client):  # noqa: F811
-    r = client.post("/billing/signup-free", data={"email": "form@example.com"})
+    r = client.post("/billing/signup-free", data={"email": "form@mail.test-shop.dev"})
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
     assert r.headers["cache-control"] == "no-store"
     with _db() as conn:
         row = conn.execute(
             "SELECT api_key, tier FROM api_keys WHERE email = ? ORDER BY created_at DESC LIMIT 1",
-            ("form@example.com",),
+            ("form@mail.test-shop.dev",),
         ).fetchone()
     assert row["tier"] == "free"
     assert f"<code>{row['api_key']}</code>" in r.text
@@ -108,7 +108,7 @@ def test_free_form_rejects_missing_email(client, email):  # noqa: F811
 
 
 def test_free_signup_json_unchanged(client):  # noqa: F811
-    r = client.post("/billing/signup-free", json={"email": "json@example.com"})
+    r = client.post("/billing/signup-free", json={"email": "json@mail.test-shop.dev"})
     assert r.status_code == 200
     body = r.json()
     assert set(body) == {"api_key", "tier", "calls_per_month", "note"}

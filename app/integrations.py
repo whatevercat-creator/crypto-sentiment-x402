@@ -44,7 +44,7 @@ from app.billing import _db, get_key_info
 from app.coins import COIN_NAMES, validate_symbol
 from app.sentiment_service import compute_sentiment_payload
 from app.window import INSUFFICIENT_LABEL
-from app.alerts import _deliver
+from app.alerts import ACTIVE_WATCHES_SQL, _deliver
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -114,7 +114,7 @@ async def tradingview_webhook(api_key: str, request: Request):
 
     with _db() as conn:
         watches = conn.execute(
-            "SELECT * FROM watches WHERE api_key = ? AND symbol = ? AND status = 'active'",
+            f"SELECT w.* FROM {ACTIVE_WATCHES_SQL} AND w.api_key = ? AND w.symbol = ?",
             (api_key, symbol),
         ).fetchall()
 

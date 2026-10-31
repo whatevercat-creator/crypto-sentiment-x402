@@ -145,6 +145,11 @@ def db(monkeypatch, tmp_path):
 def _watch(label, compound):
     with _db() as conn:
         conn.execute(
+            "INSERT INTO api_keys (api_key, tier, status, period_start, created_at) "
+            "VALUES ('k', 'pro', 'active', ?, ?) ON CONFLICT DO NOTHING",
+            (_now_iso(), _now_iso()),
+        )
+        conn.execute(
             "INSERT INTO watches (api_key, symbol, channel_type, channel_target, threshold, last_label, "
             "last_compound, created_at) VALUES ('k', 'BTC', 'webhook', 'https://hook.test', 0.3, ?, ?, ?)",
             (label, compound, _now_iso()),
