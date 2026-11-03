@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir --upgrade "pip>=26.2.2"
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
+COPY scripts ./scripts
 
 ENV PORT=8000
 EXPOSE 8000
