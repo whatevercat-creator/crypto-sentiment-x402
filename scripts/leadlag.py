@@ -47,6 +47,12 @@ exactly, so versions are never mixed; --window-only stays "72h-hl24" only:
 With --out, "72h-hl24" results go to `symbols` as before and any other
 version's to `symbols_by_window[<version>]`, so they're reported separately.
 
+Hours with no matched headlines (sample_size = 0) are left out, not scored
+as a neutral 0 (2026-11-03 methodology note). The first reading in each hour
+decides; rows with a NULL sample_size, or a DB without the column, are kept.
+Dropping an hour also drops the hourly changes into and out of it. The
+report prints how many hours were left out.
+
 Offline / testing: --prices-csv file with rows "iso_hour_start,close".
 Stdlib + httpx only (httpx is already in requirements.txt).
 """
@@ -85,7 +91,7 @@ SCORE_COLUMNS = {"weighted": "average_compound", "unweighted": "unweighted_compo
 
 
 def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False,
-                   window_only=False, score="weighted", window=None) -> dict:
+                   window_only=False, score="weighted", window=None, stats=None) -> dict:
     """{hour_start: score}. Readings land a few seconds after :00, so
     flooring to the hour gives the reading AT that hour boundary.
 
@@ -96,7 +102,9 @@ def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False,
     window: keep only rows whose window version is exactly this (overrides
     window_only).
     score: "weighted" (average_compound) or "unweighted"
-    (unweighted_compound_72h, which only window rows have)."""
+    (unweighted_compound_72h, which only window rows have).
+    Hours whose first reading has sample_size 0 (no matched headlines) are
+    left out; if stats is a dict, stats["zero_sample_hours"] gets the count."""
     column = SCORE_COLUMNS[score]
     if window is None and window_only:
         window = WINDOW_ONLY_VERSION
@@ -110,7 +118,8 @@ def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False,
     if not needed <= columns:
         conn.close()
         return {}
-    sql = (f"SELECT observed_at, {column} FROM sentiment_hourly "
+    sample = "sample_size" if "sample_size" in columns else "NULL"
+    sql = (f"SELECT observed_at, {column}, {sample} FROM sentiment_hourly "
            f"WHERE symbol = ? AND {column} IS NOT NULL")
     params = [symbol]
     if whole_word_only:
@@ -120,13 +129,16 @@ def load_sentiment(db_path: str, symbol: str, since=None, whole_word_only=False,
         params.append(window)
     rows = conn.execute(sql + " ORDER BY observed_at", params).fetchall()
     conn.close()
-    out = {}
-    for ts, val in rows:
+    first = {}
+    for ts, val, n in rows:
         observed = parse_ts(ts)
         if since is not None and observed < since:
             continue
         h = hour_floor(observed)
-        out.setdefault(h, float(val))  # keep first reading if duplicated
+        first.setdefault(h, (float(val), n))  # keep first reading if duplicated
+    out = {h: val for h, (val, n) in first.items() if n != 0}
+    if stats is not None:
+        stats["zero_sample_hours"] = len(first) - len(out)
     return out
 
 
@@ -229,10 +241,11 @@ def analyze(sent: dict, closes: dict) -> dict:
             "sentiment_hours": len(sent)}
 
 
-def print_report(symbol, res, first, last):
+def print_report(symbol, res, first, last, zero_sample_hours=0):
     print(f"\n{symbol}: sentiment Δ vs {symbol}-USD hourly log return")
     print(f"window {first:%Y-%m-%d %H:00Z} -> {last:%Y-%m-%d %H:00Z}, "
-          f"{res['sentiment_hours']} sentiment hours, {res['paired_hours']} paired at k=0\n")
+          f"{res['sentiment_hours']} sentiment hours, {res['paired_hours']} paired at k=0, "
+          f"{zero_sample_hours} hours left out (sample_size 0)\n")
     print(" k(h)    n     corr   ±95%   sig  (k>0 = sentiment leads)")
     for r in res["offsets"]:
         c = "   n/a" if r["corr"] is None else f"{r['corr']:+.3f}"
@@ -261,8 +274,9 @@ def main():
     sym = a.symbol.upper()
     version = a.window or (WINDOW_ONLY_VERSION if a.window_only else None)
 
+    stats = {}
     sent = load_sentiment(a.db, sym, since=a.since, whole_word_only=a.whole_word_only,
-                          window=version, score=a.score)
+                          window=version, score=a.score, stats=stats)
     if len(sent) < 2:
         which = (f" window {version}" if version else "") + (" whole-word" if a.whole_word_only else "")
         sys.exit(f"Only {len(sent)}{which} hourly rows for {sym} in {a.db}; nothing to analyze yet.")
@@ -272,7 +286,7 @@ def main():
               else fetch_coinbase_closes(sym, first - pad, last + pad))
 
     res = analyze(sent, closes)
-    print_report(sym, res, first, last)
+    print_report(sym, res, first, last, stats.get("zero_sample_hours", 0))
 
     if a.out:
         doc = {}
@@ -290,6 +304,8 @@ def main():
             "window_start": first.isoformat(),
             "window_end": last.isoformat(),
             "paired_hours": res["paired_hours"],
+            "hours_used": res["sentiment_hours"],
+            "hours_excluded_zero_headlines": stats.get("zero_sample_hours", 0),
             "readings": ", ".join(filter(None, [
                 f"window {version} only" if version else "",
                 "whole-word matcher only" if a.whole_word_only else "",

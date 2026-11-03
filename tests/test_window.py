@@ -11,6 +11,7 @@ Run with: python -m pytest
 import asyncio
 import json
 import logging
+import math
 import os
 import secrets
 import sqlite3
@@ -446,22 +447,63 @@ def test_leadlag_window_only_on_older_db(tmp_path):
     assert leadlag.load_sentiment(str(path), "BTC", score="unweighted") == {}
 
 
+def test_leadlag_drops_zero_headline_hours(tmp_path):
+    path = tmp_path / "ss.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        'CREATE TABLE sentiment_hourly (symbol TEXT, observed_at TEXT, average_compound REAL, '
+        'sample_size INTEGER, "window" TEXT)'
+    )
+    conn.executemany(
+        "INSERT INTO sentiment_hourly VALUES ('BTC', ?, ?, ?, '72h-hl24')",
+        [
+            ("2026-10-05T10:00:02+00:00", 0.2, 5),
+            ("2026-10-05T11:00:02+00:00", 0.0, 0),     # no headlines: left out, not a neutral 0
+            ("2026-10-05T11:30:00+00:00", 0.4, 6),     # later reading in the same hour: first one decides
+            ("2026-10-05T12:00:02+00:00", 0.3, None),  # unknown sample size: kept
+            ("2026-10-05T13:00:02+00:00", 0.5, 7),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    stats = {}
+    sent = leadlag.load_sentiment(str(path), "BTC", window="72h-hl24", stats=stats)
+    hours = sorted(h.hour for h in sent)
+    assert hours == [10, 12, 13] and stats == {"zero_sample_hours": 1}
+    # The dropped hour also removes the changes into and out of it: only 12->13 pairs.
+    closes = {datetime(2026, 10, 5, h, tzinfo=timezone.utc): 100.0 + h for h in range(24)}
+    res = leadlag.analyze(sent, closes)
+    assert res["sentiment_hours"] == 3 and res["paired_hours"] == 1
+
+
 def test_validation_first_look_and_next_update(client):
     doc = main._load_validation()
     note = next(n for n in doc["methodology_changes"] if n["date"] == "2026-10-04")
     assert note["date"] == "2026-10-04" and "72 hours" in note["change"] and "DL News" in note["change"]
     assert "--window-only" in doc["method"]
-    assert doc["next_update"] == "2026-11-03"
+    assert doc["next_update"] == "2026-11-18"
     assert set(doc["symbols"]) == {"BTC", "ETH", "XRP", "SOL"}
+    # 2026-11-03 update: 72h-hl24 rows only, zero-headline hours excluded.
+    nov3 = next(n for n in doc["methodology_changes"] if n["date"] == "2026-11-03")
+    assert "sample_size 0" in nov3["change"] and "72h-hl24-v2" in nov3["effect_on_validation"]
+    assert "symbols_by_window" not in doc  # no 72h-hl24-v2 numbers published yet
     for entry in doc["symbols"].values():
         assert entry["status"] == "measured" and entry["verdict"] == "no_significant_relationship"
         assert len(entry["offsets"]) == 25
         assert not any(o["significant"] for o in entry["offsets"])
-        assert "2026-11-03" in entry["note"]
+        assert "2026-11-18" in entry["note"]
+        assert entry["window_end"] == "2026-10-21T23:00:00+00:00" and entry["paired_hours"] == 427
+        assert entry["bonferroni_bar"] == round(leadlag.Z_BONF / math.sqrt(entry["paired_hours"]), 4)
+        assert abs(entry["peak"]["corr"]) < entry["bonferroni_bar"] and not entry["peak"]["clears_bar"]
     html = client.get("/", headers={"Accept": "text/html"}).text
     assert escape(doc["first_look_summary"]) in html
     assert "no measurable lead or lag" in html
-    assert note in client.get("/transparency").json()["methodology_changes"]
+    llms = client.get("/llms.txt").text
+    assert "2026-11-03 update: no clear lead or lag at the hourly level" in llms and "2026-10-17" not in llms
+    transparency = client.get("/transparency").json()
+    assert note in transparency["methodology_changes"]
+    assert "2026-11-03 update found no clear lead or lag at the hourly level" in transparency["signal_validation"]
+    assert "2026-10-17" not in transparency["signal_validation"]
 
 
 def test_history_notes_do_not_share_names_with_row_fields(db):
