@@ -31,7 +31,7 @@ ROUTES = ("GET /sentiment/:symbol", "GET /history/:symbol")
 @pytest.mark.parametrize("route", ROUTES)
 def test_discovery_copy_reads_well(route):
     cfg = main.routes[route]
-    assert cfg.description.startswith("Use when an agent needs")
+    assert "Use when an agent needs" in cfg.description
     assert len(cfg.description) < 500
     assert "not charged" in cfg.description
     # Survives the facilitator's own sanitizing unchanged, so the Bazaar
@@ -47,7 +47,7 @@ def test_402_resource_carries_service_name_and_tags(client, path):  # noqa: F811
     resource = json.loads(base64.b64decode(r.headers["payment-required"]))["resource"]
     assert resource["serviceName"] == "Crypto Sentiment API"
     assert resource["tags"] == ["crypto", "sentiment", "news", "trading", "bitcoin"]
-    assert resource["description"].startswith("Use when an agent needs")
+    assert "Use when an agent needs" in resource["description"]
 
 
 def test_sentiment_description_counts_match_code():

@@ -361,23 +361,23 @@ OUTLET_LIST = ", ".join(NEWS_OUTLETS)
 # Bazaar discovery copy (resource.description / serviceName / tags in the
 # 402). Keep each description under 500 characters; the Bazaar listing
 # only refreshes after a payment settles on the route.
+# Each description opens with what it is, in the words buyers search
+# ("crypto sentiment API"), then a "Use when ..." sentence.
 SENTIMENT_ROUTE_DESCRIPTION = (
-    "Use when an agent needs a current news-sentiment reading for one crypto coin "
-    "before a trade, alert or research step. Returns JSON: bullish/bearish/neutral "
-    "label, score (-1 to 1), sample size and the top 5 headlines behind it (title, "
-    f"link), from {len(NEWS_OUTLETS)} crypto news RSS outlets and the Fear & Greed Index "
-    f"over the last 72h. {len(COIN_NAMES)} coins incl. BTC, ETH, SOL, XRP, DOGE; e.g. "
-    "/sentiment/BTC. An unsupported coin (404) or too little recent news (422) is "
-    "refused and not charged."
+    f"Crypto news sentiment API for {len(COIN_NAMES)} coins (BTC, ETH, SOL, XRP, DOGE and "
+    "more): bullish/bearish/neutral label, score -1 to 1, sample size and the top 5 "
+    f"headlines behind it (title, link), from {len(NEWS_OUTLETS)} crypto news RSS outlets "
+    "plus the Fear & Greed Index, last 72h. Use when an agent needs a current sentiment "
+    "reading before a trade, alert or research step; e.g. /sentiment/BTC. An unsupported "
+    "coin (404) or too little recent news (422) is refused and not charged."
 )
 HISTORY_ROUTE_DESCRIPTION = (
-    "Use when an agent needs past hourly crypto news-sentiment readings for one coin, "
-    "e.g. to backtest or compare sentiment with price. Recorded live at the top of "
-    "every UTC hour, never backfilled. Each row: observed_at, score (-1 to 1), sample "
-    "size, Fear & Greed value and the top 3 headlines behind it. Query start/end as "
-    "ISO 8601: default last 7 days, max 30 per call. An unlogged coin, an invalid "
-    "range or a range with no readings or no headlines is refused and not charged. "
-    "Coverage: /archive."
+    f"Historical crypto sentiment API: hourly news-sentiment readings for {len(COIN_NAMES)} "
+    "coins, recorded live every UTC hour and never backfilled. Rows: observed_at, score "
+    "(-1 to 1), sample size, Fear & Greed value and the top 3 headlines. Use when an agent "
+    "needs past readings, e.g. to backtest or compare with price. Query start/end as ISO "
+    "8601: default last 7 days, max 30 per call. An unlogged coin, an invalid range, or a "
+    "range with no readings or no headlines is refused and not charged. Coverage: /archive."
 )
 DISCOVERY_SERVICE_NAME = "Crypto Sentiment API"
 DISCOVERY_TAGS = ["crypto", "sentiment", "news", "trading", "bitcoin"]

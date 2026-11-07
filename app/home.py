@@ -21,6 +21,14 @@ PYPI_URL = "https://pypi.org/project/crypto-sentiment-x402-mcp/"
 HISTORY_DOCS_PATH = "/docs#/Paid%20(x402)/get_history_history__symbol__get"
 
 
+# Google Search Console ownership check. Public by design (it sits on the
+# page); goes on the HTML home page (/) only.
+GOOGLE_SITE_VERIFICATION_TAG = (
+    '<meta name="google-site-verification" '
+    'content="GAISr1qAqb7bLxzqKXkf0iccPzmZhsn43YTF9dENuJ0" />'
+)
+
+
 def seo_head(*, title: str, description: str, url: str) -> str:
     """<title>, description, canonical link and Open Graph tags for a public page."""
     t, d, u = escape(title), escape(description), escape(url)
@@ -251,6 +259,7 @@ def render_home(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 {head_tags}
+{GOOGLE_SITE_VERIFICATION_TAG}
 <style>{_CSS}</style>
 </head>
 <body>
