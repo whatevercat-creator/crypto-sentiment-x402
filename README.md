@@ -1,14 +1,45 @@
 # Crypto Sentiment API (x402)
 
-Pay-per-call crypto sentiment API for AI agents. No API keys, no
-subscriptions — agents discover it, get an HTTP 402, pay in USDC on Base,
-and get the data.
+News-based crypto sentiment for AI agents and trading bots, paid per call in
+USDC on Base over [x402](https://x402.org). No account or API key: call the
+endpoint, get an HTTP 402 with the price, pay, and get JSON.
 
-**Sentiment sources (all free, no keys required):**
-- Crypto news RSS (9 outlets) — CoinDesk, Cointelegraph, Decrypt, Bitcoin
+Live at **https://crypto-sentiment-x402.onrender.com** ·
+[API docs](https://crypto-sentiment-x402.onrender.com/docs) ·
+[llms.txt](https://crypto-sentiment-x402.onrender.com/llms.txt)
+
+## What you get
+
+| Endpoint | Price | Returns |
+| --- | --- | --- |
+| `GET /sentiment/{symbol}` | $0.01 per call | A bullish / bearish / neutral label, a score from -1 to 1, the sample size, and the up to 5 headlines that moved the score most (title, source, link). |
+| `GET /history/{symbol}?start=&end=` | $0.05 per call | Hourly readings recorded live at the top of every UTC hour (never backfilled): score, sample size, Fear & Greed value and the top 3 headlines per hour. Default the last 7 days, up to 30 days per call. |
+| `GET /archive` | free | Which symbols the hourly archive holds, from when, and how complete it is. |
+
+The 402 response is the source of truth for the current price.
+
+**24 coins:** BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, LINK, MATIC, DOT, SHIB,
+LTC, BNB, USDC, USDT, NEAR, HYPE, QNT, AAVE, TAO, PEPE, PUMP, ENA, STRK.
+
+**Refused calls are never charged.** The payment only settles when you get
+a reading:
+- `404`: a symbol that isn't one of the 24 coins (a stock ticker, say).
+- `422`: too little recent news about that coin for a reliable reading.
+- `/history` also refuses (4xx, not charged) an invalid range, a range with
+  no readings, and a range in which every hour had zero matching headlines.
+
+Prefer a monthly bill? The same readings are on `GET /v1/sentiment/{symbol}`
+with an `X-API-Key` header ([plans](https://crypto-sentiment-x402.onrender.com/billing/pricing),
+including a free tier). There's also an MCP server:
+`pip install crypto-sentiment-x402-mcp` (see [MCP.md](MCP.md)).
+
+## How it's scored
+
+**Sources (all free, no keys required):**
+- Crypto news RSS (9 outlets): CoinDesk, Cointelegraph, Decrypt, Bitcoin
   Magazine, The Block, CryptoSlate, NewsBTC, CryptoPotato, The Defiant
   (DL News was removed on 2026-10-04: its feed served only April-May 2026 items)
-- Fear & Greed Index — alternative.me
+- Fear & Greed Index: alternative.me
 
 **Scoring:** VADER sentiment analysis, extended with a crypto slang lexicon
 (moon, rekt, rug, hodl, bullish/bearish, etc.) so slang isn't scored as neutral.
@@ -17,7 +48,13 @@ HTML tags, entities, feed footers and the outlet's own name removed
 (`clean_text` in `app/sources/news.py`; method `72h-hl24-v2` from 2026-10-21).
 Only headlines published in the last 72 hours count, and each headline's
 weight halves for every 24 hours of age (`app/window.py`). When the effective
-sample size is below 5, the label is `insufficient recent news`.
+sample size is below 5, the label is `insufficient recent news` and the paid
+endpoints refuse with a 422 instead of charging. Whether the score leads or
+lags price is published at `/validation`, whatever it shows.
+
+News sentiment only: not a price prediction or financial advice.
+
+## Running your own copy
 
 ---
 

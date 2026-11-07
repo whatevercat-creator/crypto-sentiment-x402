@@ -262,7 +262,7 @@ def test_bazaar_example_validates_with_window_fields():
     ext = main.routes["GET /sentiment/:symbol"].extensions["bazaar"]
     example_schema = ext["schema"]["properties"]["output"]["properties"]["example"]
     jsonschema.validate(ext["info"]["output"]["example"], example_schema)
-    assert ext["info"]["output"]["example"]["overall_sentiment"]["window"] == "72h-hl24"
+    assert ext["info"]["output"]["example"]["overall_sentiment"]["window"] == window.WINDOW_VERSION
 
 
 # --------------------------------------------------------------------------

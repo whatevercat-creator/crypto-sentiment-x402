@@ -384,8 +384,16 @@ HISTORY_EXAMPLE = {
 }
 
 
-def render_archive_html(summary: dict) -> str:
+def render_archive_html(summary: dict, base_url: str = "") -> str:
     """Self-contained page; every fact comes from archive_summary()."""
+    from app.home import seo_head
+
+    head_tags = seo_head(
+        title="Hourly Crypto Sentiment Archive - Crypto Sentiment API",
+        description="What's in the hourly crypto news-sentiment archive: symbols, first reading, "
+        "row counts and missing hours. Readings are recorded live and never backfilled.",
+        url=f"{base_url}/archive",
+    )
     rows = []
     for symbol, s in summary["symbols"].items():
         missing = (
@@ -405,8 +413,7 @@ def render_archive_html(summary: dict) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Hourly Sentiment Archive</title>
-<meta name="description" content="What's in the hourly crypto news-sentiment archive: symbols, first reading, row counts and missing hours.">
+{head_tags}
 <style>
 :root{{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent:#58a6ff}}
 *{{box-sizing:border-box}}

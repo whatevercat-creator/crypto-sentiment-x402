@@ -17,6 +17,23 @@ from typing import Optional
 GITHUB_URL = "https://github.com/whatevercat-creator/crypto-sentiment-x402"
 RAPIDAPI_URL = "https://rapidapi.com/whatevercat/api/crypto-sentiment-analysis"
 PYPI_URL = "https://pypi.org/project/crypto-sentiment-x402-mcp/"
+# Swagger UI deep link (tag/operationId) to GET /history/{symbol} in /docs.
+HISTORY_DOCS_PATH = "/docs#/Paid%20(x402)/get_history_history__symbol__get"
+
+
+def seo_head(*, title: str, description: str, url: str) -> str:
+    """<title>, description, canonical link and Open Graph tags for a public page."""
+    t, d, u = escape(title), escape(description), escape(url)
+    return (
+        f"<title>{t}</title>\n"
+        f'<meta name="description" content="{d}">\n'
+        f'<link rel="canonical" href="{u}">\n'
+        '<meta property="og:type" content="website">\n'
+        '<meta property="og:site_name" content="Crypto Sentiment API">\n'
+        f'<meta property="og:title" content="{t}">\n'
+        f'<meta property="og:description" content="{d}">\n'
+        f'<meta property="og:url" content="{u}">'
+    )
 
 _CSS = """
 :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;
@@ -219,14 +236,21 @@ def render_home(
     )
     example = escape(json.dumps(example_response, indent=2))
     curl = escape(f"curl -i {base_url}/sentiment/BTC")
+    head_tags = seo_head(
+        title=f"Crypto Sentiment API: news sentiment for {len(coins)} coins, paid per call (x402)",
+        description=f"News-based sentiment for {len(coins)} crypto coins (BTC, ETH, SOL and more) "
+        f"from {len(outlets)} crypto news outlets plus the Fear & Greed Index, with the headlines "
+        f"behind each score. {price_usd} per call in USDC over x402; refused calls are not charged. "
+        "Hourly history too.",
+        url=f"{base_url}/",
+    )
 
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Crypto Sentiment API</title>
-<meta name="description" content="Crypto sentiment scores for AI agents and trading bots, paid per call with x402.">
+{head_tags}
 <style>{_CSS}</style>
 </head>
 <body>
@@ -272,7 +296,7 @@ Real reading taken {escape(example_taken_at)}:</p>
 <p>Every hour the API records a sentiment reading per tracked coin, with the top headlines behind it.
 Readings are recorded live and never backfilled, so the archive only goes back to the first reading.
 <a href="/archive">See what's in it</a>: symbols, first reading, row counts and any missing hours.</p>
-<p>Get the readings with <code>GET /history/{{symbol}}</code> for {escape(history_price_usd)} per call
+<p>Get the readings with <a href="{HISTORY_DOCS_PATH}"><code>GET /history/{{symbol}}</code></a> for {escape(history_price_usd)} per call
 over x402 (default the last 7 days, up to 30 days per call). Plans with dataset access get every hourly row
 in <code>/dataset/export</code>.</p>
 
@@ -293,6 +317,8 @@ gives an MCP client 5 tools: three free with no wallet (<code>list_supported_coi
 </main>
 <footer>
 <a href="/docs">API docs</a>
+<a href="/archive">Hourly archive</a>
+<a href="{HISTORY_DOCS_PATH}">History API</a>
 <a href="/billing/pricing">Pricing (JSON)</a>
 <a href="/validation">Validation</a>
 <a href="{GITHUB_URL}">GitHub</a>

@@ -33,6 +33,7 @@ swap the sqlite3 calls below for a real Postgres connection -- the schema
 is trivial to port.
 """
 
+import json
 import logging
 import os
 import secrets
@@ -280,17 +281,43 @@ _signup_hits: dict = {}
 _signup_lock = threading.Lock()
 
 
-def _clean_signup_email(raw: str) -> str:
-    """The address to store, or 400. Syntax only: no DNS lookup."""
+def _log_free_signup(email_domain: Optional[str], result: str, reason: Optional[str] = None) -> None:
+    """One JSON line per POST /billing/signup-free (JSON or form). The email's
+    domain only -- never the full address, never the key. email_domain is
+    null when the address didn't parse, so raw input is never logged."""
+    line = {
+        "event": "free_signup",
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "email_domain": email_domain,
+        "result": result,
+    }
+    if reason:
+        line["reason"] = reason
+    logger.info(json.dumps(line))
+
+
+def _clean_signup_email(raw: str) -> tuple:
+    """(address to store, its ASCII domain), or 400. Syntax only: no DNS
+    lookup. Logs the free_signup line for a rejected address."""
     try:
         checked = validate_email(raw.strip(), check_deliverability=False)
     except EmailNotValidError:
+        _log_free_signup(None, "rejected", "invalid_email")
         raise HTTPException(400, "Enter a valid email address.")
     domain = checked.ascii_domain.lower()
     if any(domain == d or domain.endswith("." + d) for d in _SAMPLE_EMAIL_DOMAINS):
         logger.info("[billing] free signup refused: sample email domain")
+        _log_free_signup(domain, "rejected", "sample_domain")
         raise HTTPException(400, "That's a sample address from the docs. Use your own email address.")
-    return checked.normalized
+    return checked.normalized, domain
+
+
+def _check_free_signup_rate(request: Request, domain: str) -> None:
+    try:
+        _check_signup_rate(request)
+    except HTTPException:
+        _log_free_signup(domain, "rejected", "rate_limited")
+        raise
 
 
 def _client_ip(request: Request) -> str:
@@ -343,9 +370,11 @@ def _issue_free_key(email: str) -> dict:
 
 @router.post("/signup-free", openapi_extra={"security": []})
 def signup_free(body: FreeSignup, request: Request):
-    email = _clean_signup_email(body.email)
-    _check_signup_rate(request)
-    return _issue_free_key(email)
+    email, domain = _clean_signup_email(body.email)
+    _check_free_signup_rate(request, domain)
+    result = _issue_free_key(email)
+    _log_free_signup(domain, "created")
+    return result
 
 
 def _checkout_url(tier: str) -> str:
@@ -382,12 +411,13 @@ async def _form_fields(request: Request) -> dict:
 
 async def _signup_free_form(request: Request):
     try:
-        email = _clean_signup_email((await _form_fields(request)).get("email", ""))
-        _check_signup_rate(request)
+        email, domain = _clean_signup_email((await _form_fields(request)).get("email", ""))
+        _check_free_signup_rate(request, domain)
     except HTTPException as e:
         title = "Too many requests" if e.status_code == 429 else "Enter your email"
         return HTMLResponse(render_message_page(title, str(e.detail)), status_code=e.status_code, headers=e.headers)
     result = _issue_free_key(email)
+    _log_free_signup(domain, "created")
     return HTMLResponse(
         render_api_key_page(
             plan_label=TIERS["free"]["label"].lower(),
