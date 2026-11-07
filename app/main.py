@@ -731,6 +731,19 @@ async def favicon():
     return Response(_FAVICON, media_type="image/x-icon", headers={"Cache-Control": "public, max-age=86400"})
 
 
+# Google Search Console ownership check (HTML file method): serve the file
+# Google issued, byte for byte, at /<its filename>. Free, any Accept header,
+# not in /openapi.json or the sitemap. The <meta> tag on / stays as well.
+[_GOOGLE_VERIFY_FILE] = sorted((Path(__file__).parent / "static").glob("google*.html"))
+GOOGLE_VERIFY_PATH = "/" + _GOOGLE_VERIFY_FILE.name
+_GOOGLE_VERIFY_BYTES = _GOOGLE_VERIFY_FILE.read_bytes()
+
+
+@app.get(GOOGLE_VERIFY_PATH, include_in_schema=False)
+async def google_site_verification_file():
+    return Response(_GOOGLE_VERIFY_BYTES, media_type="text/html")
+
+
 # /sentiment/ and /history/ stay crawlable on purpose: x402 directories and
 # agent crawlers may honor robots.txt, and those are the routes to find.
 # Disallowed: key-gated and per-customer paths (/integrations/ URLs carry
