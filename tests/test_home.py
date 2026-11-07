@@ -90,7 +90,12 @@ def test_non_browser_gets_original_json(client, headers):
     r = client.get("/", headers=headers)
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/json"
-    assert r.json() == ORIGINAL_ROOT_JSON
+    body = r.json()
+    # Every original key keeps its value (agents depend on them); the only
+    # addition is the /history pointer.
+    assert {k: body[k] for k in ORIGINAL_ROOT_JSON} == ORIGINAL_ROOT_JSON
+    assert set(body) - set(ORIGINAL_ROOT_JSON) == {"history"}
+    assert body["history"].startswith("/history/{symbol}")
 
 
 def test_home_page_free_while_paywall_active(client):

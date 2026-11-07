@@ -56,7 +56,7 @@ def test_all_zero_range_is_404_with_coverage(db):  # noqa: F811
         "rows_in_range": 3,
         "coverage_7d_pct": 25.0,
         "message": "Every hour in this range had zero matching headlines for AVAX, so "
-        "there's no sentiment to sell and nothing was charged. See GET /archive for coverage.",
+        "there's no sentiment to sell. Not charged. See GET /archive for coverage.",
     }
 
 

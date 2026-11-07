@@ -22,6 +22,7 @@ Env vars (see .env.example):
 """
 
 import os
+import copy
 import json
 import base64
 import binascii
@@ -120,7 +121,7 @@ EXAMPLE_RESPONSE = {
         "unweighted_compound_72h": 0.17,
         "effective_sample_size": 29.4,
         "newest_headline_age_hours": 1.6,
-        "window": "72h-hl24",
+        "window": WINDOW_VERSION,
     },
     "drivers": [
         {
@@ -249,6 +250,62 @@ server = x402ResourceServer(facilitator)
 server.register(CAIP2_NETWORK, ExactEvmServerScheme())
 server.register_extension(bazaar_resource_server_extension)
 
+# Response schemas, shared by the Bazaar discovery metadata in the 402 and
+# the 200 responses in /openapi.json.
+SENTIMENT_OUTPUT_SCHEMA = {
+    "properties": {
+        "symbol": {"type": "string"},
+        "name": {"type": "string"},
+        "overall_sentiment": {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "enum": ["bullish", "bearish", "neutral", INSUFFICIENT_LABEL]},
+                "average_compound": {"type": "number"},
+                "sample_size": {"type": "integer"},
+                "unweighted_compound_72h": {"type": "number"},
+                "effective_sample_size": {"type": "number"},
+                "newest_headline_age_hours": {"type": ["number", "null"]},
+                "window": {"type": "string"},
+            },
+        },
+        "drivers": DRIVERS_SCHEMA,
+        "drivers_summary": {"type": "string"},
+    },
+    "required": ["symbol", "overall_sentiment"],
+}
+
+HISTORY_OUTPUT_SCHEMA = {
+    "properties": {
+        "symbol": {"type": "string"},
+        "start": {"type": "string"},
+        "end": {"type": "string"},
+        "count": {"type": "integer"},
+        "rows": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "observed_at": {"type": "string"},
+                    "average_compound": {"type": ["number", "null"]},
+                    "sample_size": {"type": ["integer", "null"]},
+                    "fear_greed_value": {"type": ["integer", "null"]},
+                    "matcher": _NULLABLE_STRING,
+                    "drivers": {"anyOf": [{"type": "null"}, DRIVERS_SCHEMA]},
+                    "unweighted_compound_72h": {"type": ["number", "null"]},
+                    "effective_sample_size": {"type": ["number", "null"]},
+                    "newest_headline_age_hours": {"type": ["number", "null"]},
+                    "window": _NULLABLE_STRING,
+                },
+                "required": ["observed_at", "average_compound", "matcher", "drivers"],
+            },
+        },
+        "recording": {"type": "string"},
+        "methodology": {"type": "string"},
+        "average_compound_note": {"type": "string"},
+    },
+    "required": ["symbol", "start", "end", "count", "rows"],
+}
+
 SENTIMENT_DISCOVERY = declare_discovery_extension(
     # symbol is a PATH param (/sentiment/BTC), not a query param.
     # No query params at all.
@@ -261,30 +318,7 @@ SENTIMENT_DISCOVERY = declare_discovery_extension(
         },
         "required": ["symbol"],
     },
-    output=OutputConfig(
-        example=EXAMPLE_RESPONSE,
-        schema={
-            "properties": {
-                "symbol": {"type": "string"},
-                "name": {"type": "string"},
-                "overall_sentiment": {
-                    "type": "object",
-                    "properties": {
-                        "label": {"type": "string", "enum": ["bullish", "bearish", "neutral", INSUFFICIENT_LABEL]},
-                        "average_compound": {"type": "number"},
-                        "sample_size": {"type": "integer"},
-                        "unweighted_compound_72h": {"type": "number"},
-                        "effective_sample_size": {"type": "number"},
-                        "newest_headline_age_hours": {"type": ["number", "null"]},
-                        "window": {"type": "string"},
-                    },
-                },
-                "drivers": DRIVERS_SCHEMA,
-                "drivers_summary": {"type": "string"},
-            },
-            "required": ["symbol", "overall_sentiment"],
-        },
-    ),
+    output=OutputConfig(example=EXAMPLE_RESPONSE, schema=SENTIMENT_OUTPUT_SCHEMA),
 )
 # declare_discovery_extension() leaves out info.input.method (the library
 # fills it in per request), so the x402 middleware's startup check rejects
@@ -315,40 +349,7 @@ HISTORY_DISCOVERY = declare_discovery_extension(
         },
         "required": ["symbol"],
     },
-    output=OutputConfig(
-        example=archive.HISTORY_EXAMPLE,
-        schema={
-            "properties": {
-                "symbol": {"type": "string"},
-                "start": {"type": "string"},
-                "end": {"type": "string"},
-                "count": {"type": "integer"},
-                "rows": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "observed_at": {"type": "string"},
-                            "average_compound": {"type": ["number", "null"]},
-                            "sample_size": {"type": ["integer", "null"]},
-                            "fear_greed_value": {"type": ["integer", "null"]},
-                            "matcher": _NULLABLE_STRING,
-                            "drivers": {"anyOf": [{"type": "null"}, DRIVERS_SCHEMA]},
-                            "unweighted_compound_72h": {"type": ["number", "null"]},
-                            "effective_sample_size": {"type": ["number", "null"]},
-                            "newest_headline_age_hours": {"type": ["number", "null"]},
-                            "window": _NULLABLE_STRING,
-                        },
-                        "required": ["observed_at", "average_compound", "matcher", "drivers"],
-                    },
-                },
-                "recording": {"type": "string"},
-                "methodology": {"type": "string"},
-                "average_compound_note": {"type": "string"},
-            },
-            "required": ["symbol", "start", "end", "count", "rows"],
-        },
-    ),
+    output=OutputConfig(example=archive.HISTORY_EXAMPLE, schema=HISTORY_OUTPUT_SCHEMA),
 )
 # Same reason as SENTIMENT_DISCOVERY above.
 HISTORY_DISCOVERY["bazaar"]["info"]["input"].update(
@@ -357,14 +358,29 @@ HISTORY_DISCOVERY["bazaar"]["info"]["input"].update(
 )
 
 OUTLET_LIST = ", ".join(NEWS_OUTLETS)
+# Bazaar discovery copy (resource.description / serviceName / tags in the
+# 402). Keep each description under 500 characters; the Bazaar listing
+# only refreshes after a payment settles on the route.
 SENTIMENT_ROUTE_DESCRIPTION = (
-    "Real-time crypto sentiment for a ticker symbol (e.g. BTC, ETH, SOL) from "
-    f"{len(NEWS_OUTLETS)} crypto news RSS outlets ({OUTLET_LIST}) and the Fear & Greed "
-    "Index. Headlines from the last 72h, weighted toward the newest. Returns a "
-    "bullish/bearish/neutral label (or 'insufficient recent news'), score, sample "
-    "size and the top 5 headlines behind it (title, link) as JSON. Path param: "
-    "symbol, e.g. /sentiment/BTC."
+    "Use when an agent needs a current news-sentiment reading for one crypto coin "
+    "before a trade, alert or research step. Returns JSON: bullish/bearish/neutral "
+    "label, score (-1 to 1), sample size and the top 5 headlines behind it (title, "
+    f"link), from {len(NEWS_OUTLETS)} crypto news RSS outlets and the Fear & Greed Index "
+    f"over the last 72h. {len(COIN_NAMES)} coins incl. BTC, ETH, SOL, XRP, DOGE; e.g. "
+    "/sentiment/BTC. An unsupported coin (404) or too little recent news (422) is "
+    "refused and not charged."
 )
+HISTORY_ROUTE_DESCRIPTION = (
+    "Use when an agent needs past hourly crypto news-sentiment readings for one coin, "
+    "e.g. to backtest or compare sentiment with price. Recorded live at the top of "
+    "every UTC hour, never backfilled. Each row: observed_at, score (-1 to 1), sample "
+    "size, Fear & Greed value and the top 3 headlines behind it. Query start/end as "
+    "ISO 8601: default last 7 days, max 30 per call. An unlogged coin, an invalid "
+    "range or a range with no readings or no headlines is refused and not charged. "
+    "Coverage: /archive."
+)
+DISCOVERY_SERVICE_NAME = "Crypto Sentiment API"
+DISCOVERY_TAGS = ["crypto", "sentiment", "news", "trading", "bitcoin"]
 
 routes = {
     "GET /sentiment/:symbol": RouteConfig(
@@ -378,6 +394,8 @@ routes = {
         ],
         description=SENTIMENT_ROUTE_DESCRIPTION,
         mime_type="application/json",
+        service_name=DISCOVERY_SERVICE_NAME,
+        tags=DISCOVERY_TAGS,
         extensions=SENTIMENT_DISCOVERY,
     ),
     "GET /history/:symbol": RouteConfig(
@@ -389,8 +407,10 @@ routes = {
                 pay_to=PAY_TO_ADDRESS,
             ),
         ],
-        description="Hourly crypto news-sentiment readings for a ticker (e.g. BTC, ETH), recorded live at the top of every UTC hour and never backfilled. Each row: observed_at, average_compound (-1 to 1), sample_size, Fear & Greed value, matcher and the top 3 headlines behind it (title, link). Query start/end as ISO 8601; default last 7 days, max 30 days per call. An unlogged symbol, an invalid range or a range with no readings is refused and not charged. See /archive for symbols and coverage.",
+        description=HISTORY_ROUTE_DESCRIPTION,
         mime_type="application/json",
+        service_name=DISCOVERY_SERVICE_NAME,
+        tags=DISCOVERY_TAGS,
         extensions=HISTORY_DISCOVERY,
     ),
     # NOTE: /v1/sentiment/* is intentionally NOT listed here -- it's the
@@ -436,9 +456,21 @@ class Mirror402ChallengeMiddleware(BaseHTTPMiddleware):
         )
 
 
+TAG_PAID = "Paid (x402)"
+TAG_SUBSCRIPTION = "Subscription (API key)"
+TAG_FREE = "Free"
+OPENAPI_TAGS = [
+    {"name": TAG_PAID, "description": "Pay per call in USDC on Base over x402. An unpaid "
+     "request gets HTTP 402 with the payment requirements. Refused requests are not charged."},
+    {"name": TAG_SUBSCRIPTION, "description": "Same readings with an X-API-Key header and a "
+     "monthly quota (see /billing/pricing)."},
+    {"name": TAG_FREE, "description": "Free: index, coverage, validation, discovery and health."},
+]
+
 app = FastAPI(
     title="Crypto Sentiment API (x402)",
     contact={"email": "hi@forgealone.com"},
+    openapi_tags=OPENAPI_TAGS,
 )
 def _decode_b64_json(header: Optional[str]) -> Optional[dict]:
     if not header:
@@ -548,7 +580,19 @@ def _openapi_with_guidance():
      for param in paths.get("/sentiment/{symbol}", {}).get("get", {}).get("parameters", []):
           if param["name"] == "symbol":
                param["schema"]["enum"] = list(COIN_NAMES)
+     # The 200s only carried an example; give them the same response schema
+     # the Bazaar metadata in the 402 declares.
+     for path, output_schema in (
+          ("/sentiment/{symbol}", SENTIMENT_OUTPUT_SCHEMA),
+          ("/history/{symbol}", HISTORY_OUTPUT_SCHEMA),
+     ):
+          ok = paths.get(path, {}).get("get", {}).get("responses", {}).get("200", {})
+          media = ok.get("content", {}).get("application/json")
+          if media is not None:
+               media["schema"] = {"type": "object", **copy.deepcopy(output_schema)}
      for param in paths.get("/history/{symbol}", {}).get("get", {}).get("parameters", []):
+          if param["name"] == "symbol":
+               param["schema"]["enum"] = list(COIN_NAMES)
           if param["name"] in ("start", "end"):
                old = param["schema"]
                param["schema"] = {
@@ -609,7 +653,7 @@ async def _shutdown():
 # HEAD too, for uptime monitors; kept out of the schema so /openapi.json
 # is unchanged.
 @app.head("/", include_in_schema=False)
-@app.get("/", openapi_extra={"security": []})
+@app.get("/", tags=[TAG_FREE], openapi_extra={"security": []})
 async def root(request: Request):
     if "text/html" in request.headers.get("accept", "").lower():
         html = render_home(
@@ -650,6 +694,7 @@ def _root_index() -> dict:
         "price_per_call": PRICE_USD,
         "paid_endpoint": "/sentiment/{symbol}",
         "example": "/sentiment/BTC",
+        "history": f"/history/{{symbol}} (hourly readings, {archive.HISTORY_PRICE_USD} per call via x402; coverage at /archive)",
         "subscriptions": "/billing/pricing",
         "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
         "dataset": "/dataset/info",
@@ -671,7 +716,7 @@ def _load_validation() -> dict:
         return {"status": "measuring", "detail": "validation results not available yet"}
 
 
-@app.get("/validation", openapi_extra={"security": []})
+@app.get("/validation", tags=[TAG_FREE], openapi_extra={"security": []})
 async def validation():
     """Lead/lag of the sentiment score vs price. Free. Updated by
     scripts/leadlag.py --out app/validation.json, then committed."""
@@ -686,13 +731,38 @@ async def favicon():
     return Response(_FAVICON, media_type="image/x-icon", headers={"Cache-Control": "public, max-age=86400"})
 
 
+# /sentiment/ and /history/ stay crawlable on purpose: x402 directories and
+# agent crawlers may honor robots.txt, and those are the routes to find.
+# Disallowed: key-gated and per-customer paths (/integrations/ URLs carry
+# an API key).
+ROBOTS_DISALLOW = ("/v1/", "/billing/", "/alerts/", "/rapidapi/", "/integrations/")
+SITEMAP_PATHS = ("/", "/archive", "/docs", "/llms.txt", "/validation", "/transparency")
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    lines = ["User-agent: *", *(f"Disallow: {p}" for p in ROBOTS_DISALLOW), "",
+             f"Sitemap: {PUBLIC_BASE_URL}/sitemap.xml", ""]
+    return PlainTextResponse("\n".join(lines))
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml():
+    urls = "".join(f"<url><loc>{PUBLIC_BASE_URL}{p}</loc></url>" for p in SITEMAP_PATHS)
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>\n'
+    )
+    return Response(body, media_type="application/xml")
+
+
 @app.head("/health", include_in_schema=False)
-@app.get("/health", openapi_extra={"security": []})
+@app.get("/health", tags=[TAG_FREE], openapi_extra={"security": []})
 async def health():
     return {"status": "ok"}
 
 
-@app.get("/llms.txt", openapi_extra={"security": []})
+@app.get("/llms.txt", tags=[TAG_FREE], openapi_extra={"security": []})
 async def llms_txt():
     body = f"""# Crypto Sentiment API
 
@@ -773,7 +843,7 @@ hi@forgealone.com
     return PlainTextResponse(body)
 
 
-@app.get("/.well-known/x402", openapi_extra={"security": []})
+@app.get("/.well-known/x402", tags=[TAG_FREE], openapi_extra={"security": []})
 async def well_known_x402():
     """x402 discovery manifest -- see draft-hawkins-x402-dns-discovery."""
     return {
@@ -796,11 +866,11 @@ async def well_known_x402():
         "attestation": {"type": "none"},
         "docs": f"{PUBLIC_BASE_URL}/docs",
         "contact": "hi@forgealone.com",
-        "updated": "2026-09-18T00:00:00Z",
+        "updated": "2026-11-06T00:00:00Z",
     }
 
 
-@app.get("/.well-known/security.txt", openapi_extra={"security": []})
+@app.get("/.well-known/security.txt", tags=[TAG_FREE], openapi_extra={"security": []})
 async def security_txt():
     """RFC 9116 security contact file."""
     body = (
@@ -811,7 +881,7 @@ async def security_txt():
     return PlainTextResponse(body)
 
 
-@app.get("/transparency", openapi_extra={"security": []})
+@app.get("/transparency", tags=[TAG_FREE], openapi_extra={"security": []})
 async def transparency():
     return {
         "operator": "Independently run by a solo developer",
@@ -904,6 +974,7 @@ SENTIMENT_PAYMENT_INFO = {
 
 @app.get(
     "/sentiment/{symbol}",
+    tags=[TAG_PAID],
     openapi_extra=SENTIMENT_PAYMENT_INFO,
     responses={
         200: SENTIMENT_200,
@@ -934,14 +1005,14 @@ async def get_sentiment(symbol: str):
     return JSONResponse(payload)
 
 
-@app.get("/archive", openapi_extra={"security": []})
+@app.get("/archive", tags=[TAG_FREE], openapi_extra={"security": []})
 async def archive_page(request: Request):
     """What the hourly archive holds: symbols, first reading, row counts and
     missing hours. Readings are recorded live and never backfilled. Free.
     Browsers get an HTML page; everything else gets JSON."""
     summary = archive.archive_summary()
     if "text/html" in request.headers.get("accept", "").lower():
-        return HTMLResponse(archive.render_archive_html(summary), headers={"Vary": "Accept"})
+        return HTMLResponse(archive.render_archive_html(summary, PUBLIC_BASE_URL), headers={"Vary": "Accept"})
     return JSONResponse(summary, headers={"Vary": "Accept"})
 
 
@@ -955,6 +1026,7 @@ HISTORY_PAYMENT_INFO = {
 
 @app.get(
     "/history/{symbol}",
+    tags=[TAG_PAID],
     openapi_extra=HISTORY_PAYMENT_INFO,
     responses={
         200: {
@@ -1028,13 +1100,13 @@ async def get_history(
                 "rows_in_range": payload["count"],
                 "coverage_7d_pct": coverage["coverage_7d_pct"],
                 "message": f"Every hour in this range had zero matching headlines for {symbol}, "
-                "so there's no sentiment to sell and nothing was charged. See GET /archive for coverage.",
+                "so there's no sentiment to sell. Not charged. See GET /archive for coverage.",
             },
         )
     return JSONResponse(payload)
 
 
-@app.get("/v1/sentiment/{symbol}", openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200, **SENTIMENT_4XX, **INSUFFICIENT_NEWS_RESPONSE})
+@app.get("/v1/sentiment/{symbol}", tags=[TAG_SUBSCRIPTION], openapi_extra=API_KEY_SECURITY, responses={200: SENTIMENT_200, **SENTIMENT_4XX, **INSUFFICIENT_NEWS_RESPONSE})
 async def get_sentiment_v1(symbol: str, x_api_key: str = Header(..., alias="X-API-Key")):
     """Stripe-subscription lane -- gated by an API key issued via /billing/*.
 
