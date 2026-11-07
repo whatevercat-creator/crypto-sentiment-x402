@@ -1,7 +1,26 @@
 # Changelog
 
 Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
-HTTP API itself isn't versioned here.
+HTTP API itself isn't versioned here; dated "HTTP API" entries note
+notable API changes.
+
+## HTTP API, 2026-11-06 (deploy of 6819d87)
+
+- Bazaar discovery: both paid routes' 402s now carry "Use when ..."
+  descriptions (under 500 characters), `serviceName` "Crypto Sentiment API"
+  and 5 tags; the /sentiment example shows the live window `72h-hl24-v2`.
+  Price, payTo, network, asset and scheme unchanged (byte-identical
+  `accepts[]`). Bazaar listings only pick this up after a payment settles
+  on each route.
+- OpenAPI: Paid / Subscription / Free tags, 200 response schemas for
+  /sentiment and /history, and the 24-coin symbol enum on /history.
+- /history `no_headlines_in_range` (404) now says "Not charged."
+- New /robots.txt (paid routes stay crawlable) and /sitemap.xml; canonical
+  and Open Graph tags on / and /archive; / links /history.
+- One `free_signup` JSON log line per signup (email domain only).
+- `scripts/deactivate_junk_free_keys.py`: dry run by default; `--apply`
+  deactivates matched free-tier keys only.
+- No change to the MCP package.
 
 ## 0.1.6
 
