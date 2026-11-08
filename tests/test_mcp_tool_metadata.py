@@ -113,7 +113,10 @@ def test_descriptions_are_front_loaded():
         first_para = tools[name].description.strip().split("\n\n")[0]
         assert f"${mcp_pkg.TOOL_PRICES_USD[name]:.2f}" in first_para, name
     for name in FREE:
-        assert tools[name].description.strip().startswith("Free"), name
+        # 0.1.7: list_supported_coins leads with what it returns (search
+        # words), so "Free" only has to be in the first paragraph.
+        first_para = tools[name].description.strip().split("\n\n")[0]
+        assert "Free" in first_para, name
 
 
 def test_history_symbol_is_still_a_free_string():

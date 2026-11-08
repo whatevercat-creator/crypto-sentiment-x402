@@ -336,25 +336,22 @@ async def _paid_get(
 @mcp.tool(title="Current Crypto Sentiment", annotations=PAID_TOOL_ANNOTATIONS)
 async def crypto_sentiment(symbol: SymbolArg) -> dict[str, Any]:
     """
-    Current news sentiment for one crypto ticker. Paid: $0.01 in USDC on Base
-    per call, from this MCP server's own CDP wallet.
+    Crypto news sentiment for one coin right now: a bullish/bearish/neutral
+    label, a score from -1 to 1, sample sizes, the Fear & Greed value and up
+    to 5 headlines that moved the score. Paid: $0.01 in USDC on Base per
+    call, from this MCP server's own CDP wallet.
+
+    Use when an agent needs the current news mood for a crypto ticker.
+    Scores headlines from the last 72 hours across 9 crypto news RSS outlets,
+    newest weighted most. For past readings use get_hourly_history.
 
     symbol must be exactly one of the 24 uppercase tickers from
-    list_supported_coins (e.g. BTC). Lowercase ("btc") or any other symbol is
-    rejected by the input schema before a request is sent, so nothing is
-    charged.
-
-    Scores headlines from the last 72 hours across 9 crypto news RSS outlets
-    (VADER plus a crypto slang lexicon, weighted toward the newest) alongside
-    the Fear & Greed Index. Returns a bullish/bearish/neutral label, a
-    compound score (-1 to 1), sample sizes, the news and Fear & Greed values,
-    and up to 5 headlines that moved the score.
-
-    Low-coverage coins: when recent headlines are too few (effective sample
-    size below 5), the API refuses with HTTP 422 "insufficient recent news",
-    returned here as an error with charged: false. archive_coverage shows each
-    coin's coverage_7d_pct. Without CDP keys the tool returns a no-wallet
-    message and pays nothing. For past readings use get_hourly_history.
+    list_supported_coins (e.g. BTC); any other symbol is rejected by the
+    input schema before a request is sent, so nothing is charged. With too
+    few recent headlines the API refuses with HTTP 422 "insufficient recent
+    news", returned as an error with charged: false (archive_coverage shows
+    each coin's coverage_7d_pct). Without CDP keys the tool returns a
+    no-wallet message and pays nothing.
     """
     if (msg := _no_wallet("sentiment reading")) is not None:
         return msg
@@ -368,8 +365,14 @@ async def get_hourly_history(
     symbol: HistorySymbolArg, start: TimeArg = None, end: TimeArg = None
 ) -> dict[str, Any]:
     """
-    Past hourly sentiment readings for one coin, oldest first. Paid: $0.05 in
-    USDC on Base per call, from this MCP server's own CDP wallet.
+    Historical crypto news sentiment for one coin: hourly readings (score,
+    sample size, Fear & Greed and the top headlines for each hour), oldest
+    first. Paid: $0.05 in USDC on Base per call, from this MCP server's own
+    CDP wallet.
+
+    Use when an agent needs how a coin's news sentiment moved over past hours
+    or days, e.g. to line it up with price. For the current reading use
+    crypto_sentiment.
 
     Range: omit both bounds for the 7 days up to now. With only end, the range
     starts 7 days before it; with only start, it runs to now. A reading is
@@ -387,8 +390,7 @@ async def get_hourly_history(
 
     For low-coverage coins, check archive_coverage first: its coverage_7d_pct
     and first_reading show where data exists. Without CDP keys the tool returns
-    a no-wallet message and pays nothing. For the current reading use
-    crypto_sentiment.
+    a no-wallet message and pays nothing.
     """
     if (msg := _no_wallet("hourly history")) is not None:
         return msg
@@ -428,12 +430,14 @@ def _decode_challenge(response: httpx.Response) -> dict | None:
 @mcp.tool(title="List Supported Coins", annotations=LOCAL_TOOL_ANNOTATIONS)
 async def list_supported_coins() -> dict[str, Any]:
     """
-    Free: list the 24 ticker symbols crypto_sentiment supports, with names.
+    The 24 crypto tickers (symbol and name) that crypto_sentiment and
+    price_quote accept. Free: no wallet needed and no network call.
 
-    Useful before choosing a symbol for crypto_sentiment or price_quote.
-    No wallet needed and no network call. Any other symbol is rejected by
-    those tools' input schema before a request is sent, so nothing is
-    charged.
+    Use when choosing a symbol before calling crypto_sentiment or
+    price_quote. The coin list is fixed per release: new coins come with a
+    new version of this package, never while the server runs. Any other
+    symbol is rejected by those tools' input schema before a request is
+    sent, so nothing is charged.
     """
     return {
         "count": len(SUPPORTED_COINS),

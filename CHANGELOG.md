@@ -4,6 +4,21 @@ Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
 HTTP API itself isn't versioned here; dated "HTTP API" entries note
 notable API changes.
 
+## 0.1.7
+
+- Search words first. The MCP Registry description (server.json, 96 of
+  100 characters) and the PyPI summary (pyproject.toml, which now opens
+  with "Crypto news sentiment MCP server") say what the server is in buyer
+  words.
+- The `crypto_sentiment`, `get_hourly_history` and `list_supported_coins`
+  descriptions open with what they return, followed by "Use when ...".
+  `crypto_sentiment`'s description is shorter. The not-charged refusal
+  wording is kept.
+- `list_supported_coins` says the coin list is fixed per release: new coins
+  come with a new package version, never while the server runs.
+- README: a TODO for the Glama badge (no documented badge URL found yet).
+- Version 0.1.7 in pyproject.toml and both places in server.json.
+
 ## HTTP API, 2026-11-06 (deploy of 6819d87)
 
 - Bazaar discovery: both paid routes' 402s now carry "Use when ..."
