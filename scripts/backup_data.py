@@ -19,6 +19,9 @@ What it does:
   - Runs PRAGMA integrity_check on each copy, prints row counts per table
     and the SHA-256 of each copy, and writes them to SHA256SUMS in the
     output folder (check later with: shasum -a 256 -c SHA256SUMS).
+  - Prints a warning (and carries on) if started within 5 minutes of the
+    top of the hour, when the app inserts its hourly rows. Best run between
+    :15 and :45 past the hour.
 
 --archive-only writes a new file <name>-archive.db holding only the archive
 tables (ARCHIVE_TABLES below, with their indexes), read in one consistent
@@ -45,6 +48,7 @@ SQLITE_HEADER = b"SQLite format 3\x00"
 SIDECAR_SUFFIXES = ("-journal", "-wal", "-shm")
 PAGES_PER_STEP = 256  # backup API step size; the read lock is released between steps
 STEP_PAUSE_SECONDS = 0.01
+TOP_OF_HOUR_MARGIN_MINUTES = 5  # warn when started this close to the hourly insert at :00
 
 
 def _is_sqlite(path):
@@ -170,6 +174,17 @@ def check_copy(path):
     return integrity, counts
 
 
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def near_top_of_hour(now, margin_minutes=TOP_OF_HOUR_MARGIN_MINUTES):
+    """True within margin_minutes either side of :00, when the app's hourly
+    insert runs. (US Eastern is a whole-hour offset from UTC, so the minute
+    is the same in both.)"""
+    return now.minute >= 60 - margin_minutes or now.minute < margin_minutes
+
+
 def _inside(path, folder):
     path, folder = os.path.realpath(path), os.path.realpath(folder)
     return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
@@ -183,8 +198,15 @@ def main(argv=None):
     parser.add_argument("--archive-only", action="store_true", help="copy only the archive tables, no personal data")
     args = parser.parse_args(argv)
 
+    started_at = _now()
+    if near_top_of_hour(started_at):
+        print(
+            f"WARNING: started at :{started_at.minute:02d}, within {TOP_OF_HOUR_MARGIN_MINUTES} minutes "
+            "of the top of the hour, when the app writes its hourly rows. The copy is still "
+            "consistent, but best run between :15 and :45 past the hour."
+        )
     sources = find_sources(args.data_dir, args.db, os.environ.get("BILLING_DB_PATH"))
-    out = os.path.abspath(args.out or f"/tmp/backup-{datetime.now(timezone.utc):%Y-%m-%d}")
+    out = os.path.abspath(args.out or f"/tmp/backup-{started_at:%Y-%m-%d}")
     for s in sources:
         if _inside(out, os.path.dirname(s)):
             sys.exit(f"Output folder {out} is inside the data folder {os.path.dirname(s)}. Nothing copied.")

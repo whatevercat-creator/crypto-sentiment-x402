@@ -197,6 +197,35 @@ def test_existing_copy_is_never_overwritten(data, tmp_path):
     assert (out / "billing.db").read_bytes() == first
 
 
+@pytest.mark.parametrize(
+    "minute,warns",
+    [(54, False), (55, True), (59, True), (0, True), (4, True), (5, False), (15, False), (45, False)],
+)
+def test_warns_near_top_of_hour(data, tmp_path, monkeypatch, capsys, minute, warns):
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(backup, "_now", lambda: datetime(2026, 11, 8, 3, minute, tzinfo=timezone.utc))
+    backup.main(["--data-dir", str(data), "--out", str(tmp_path / "out")])
+    printed = capsys.readouterr().out
+    assert ("WARNING: started at" in printed) is warns
+    assert (tmp_path / "out" / "billing.db").exists()  # a warning, never a refusal
+
+
+def test_default_output_folder_uses_utc_date(data, monkeypatch):
+    from datetime import datetime, timezone
+
+    # 03:20 UTC Nov 8 is still Nov 7 in Eastern: the folder follows UTC.
+    monkeypatch.setattr(backup, "_now", lambda: datetime(2026, 11, 8, 3, 20, tzinfo=timezone.utc))
+
+    def stop_before_writing(path, **kwargs):
+        raise SystemExit(path)
+
+    monkeypatch.setattr(backup.os, "makedirs", stop_before_writing)
+    with pytest.raises(SystemExit) as e:
+        backup.main(["--data-dir", str(data)])
+    assert str(e.value) == "/tmp/backup-2026-11-08"
+
+
 def test_sidecar_and_non_sqlite_files_are_skipped(data, tmp_path):
     (data / "billing.db-journal").write_bytes(b"")
     (data / "notes.txt").write_text("not a database")
