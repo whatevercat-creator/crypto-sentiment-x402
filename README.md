@@ -1,8 +1,6 @@
 # Crypto Sentiment API (x402)
 
-<!-- TODO(0.1.7): Glama badge for this server. Glama's docs and the server's
-Glama page (glama.ai/mcp/servers/whatevercat-creator/crypto-sentiment-x402)
-don't give a badge snippet, so none is added yet. -->
+[![Crypto News Sentiment (x402) MCP server – quality and maintenance score on Glama](https://glama.ai/mcp/servers/whatevercat-creator/crypto-sentiment-x402/badges/score.svg)](https://glama.ai/mcp/servers/whatevercat-creator/crypto-sentiment-x402)
 
 News-based crypto sentiment for AI agents and trading bots, paid per call in
 USDC on Base over [x402](https://x402.org). No account or API key: call the
