@@ -45,3 +45,9 @@ def test_actions_pinned_to_a_version():
         if "uses:" in line:
             ref = line.split("uses:")[1].strip()
             assert "@" in ref and ref.split("@")[1] not in ("main", "master", "latest", "")
+
+
+def test_tests_workflow_installs_the_mcp_package():
+    # crypto_sentiment_x402_mcp.__version__ comes from installed metadata, so
+    # CI must install the package itself (deps already come from requirements).
+    assert "pip install --no-deps ." in TESTS_YML.read_text()
