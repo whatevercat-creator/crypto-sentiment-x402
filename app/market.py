@@ -215,8 +215,14 @@ def compute_movers(current: dict, limit: int = MOVERS_DEFAULT_LIMIT, now: Option
     target = now - MOVERS_LOOKBACK
     limit = max(1, min(limit, MOVERS_MAX_LIMIT))
 
+    # Only the rows that can be "the ~24h-ago reading" (target +/- tolerance;
+    # end is exclusive, hence the extra second), not the whole archive.
     rows_by_symbol: dict = {}
-    for row in archive_module.hourly_rows():
+    window_rows = archive_module.hourly_rows(
+        start=target - MOVERS_LOOKBACK_TOLERANCE,
+        end=target + MOVERS_LOOKBACK_TOLERANCE + timedelta(seconds=1),
+    )
+    for row in window_rows:
         rows_by_symbol.setdefault(row["symbol"], []).append(row)
 
     shifts = []

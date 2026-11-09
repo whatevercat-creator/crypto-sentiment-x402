@@ -414,8 +414,8 @@ MOVERS_ROUTE_DESCRIPTION = (
     "~24h, current reading (refreshed hourly, see computed_at) vs. the archived reading "
     "~24h earlier. Returns movers_up/movers_down (symbol, current_score, previous_score, "
     "delta). Use when an agent scans for what moved instead of looping /sentiment over "
-    "every coin. Coins without enough news now and ~24h ago are left out, not guessed at; "
-    "one flat price per call."
+    "every coin. Coins without enough news now and ~24h ago are left out, not guessed at. "
+    "If no coin can be ranked, the call is refused and not charged."
 )
 DISCOVERY_SERVICE_NAME = "Crypto Sentiment API"
 DISCOVERY_TAGS = ["crypto", "sentiment", "news", "trading", "bitcoin"]
@@ -1149,6 +1149,10 @@ MOVERS_PAYMENT_INFO = {
             "description": "Payment required. The x402 payment requirements are in "
             "the PAYMENT-REQUIRED header and mirrored in the JSON body."
         },
+        422: {
+            "description": "No coin had enough recent news both now and ~24h ago to rank "
+            "a shift. Nothing is returned. Not charged."
+        },
     },
 )
 async def get_movers(
@@ -1164,8 +1168,27 @@ async def get_movers(
     compute -- one call instead of looping /sentiment over every symbol.
     The current side comes from the shared hourly cache (same as
     /market-sentiment), so a paid call doesn't wait on a live 24-coin feed
-    fetch; computed_at says how fresh it is."""
-    return JSONResponse(await market.compute_movers_cached(limit=limit))
+    fetch; computed_at says how fresh it is.
+
+    If no coin can be ranked, refuse with a 422 before anything is returned:
+    we don't charge for answers we don't have, and the x402 middleware never
+    settles a payment on a 4xx (same pattern as refuse_if_insufficient)."""
+    result = await market.compute_movers_cached(limit=limit)
+    if result["coins_ranked"] == 0:
+        logger.info(json.dumps({
+            "event": "movers_refused",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "coins_considered": result["coins_considered"],
+            "computed_at": result["computed_at"],
+        }))
+        raise HTTPException(
+            status_code=422,
+            detail="No coin had enough recent news both now and ~24h ago to rank a "
+            f"sentiment shift (effective sample size {market.MIN_EFFECTIVE_SAMPLE} needed on "
+            "both sides). Not charged. Try again later, or /market-sentiment (free) for the "
+            "current reading.",
+        )
+    return JSONResponse(result)
 
 
 HISTORY_PAYMENT_INFO = {

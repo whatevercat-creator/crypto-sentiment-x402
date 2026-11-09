@@ -255,9 +255,11 @@ def _counting_fetch(monkeypatch):
 def test_two_movers_calls_within_ttl_cause_one_feed_fetch(db, monkeypatch):
     # Calls the route handler directly (past the x402 paywall), as
     # test_archive.py does for /history. limit is passed explicitly because
-    # its default is a FastAPI Query object.
+    # its default is a FastAPI Query object. One archived row ~24h ago so a
+    # coin is ranked (with none ranked, /movers refuses with 422).
     calls = _counting_fetch(monkeypatch)
-    first = json.loads(asyncio.run(main.get_movers(limit=10)).body)
+    _insert_hourly("BTC", datetime.now(UTC) - timedelta(hours=24), 0.05, 20.0)
+    first =json.loads(asyncio.run(main.get_movers(limit=10)).body)
     second = json.loads(asyncio.run(main.get_movers(limit=10)).body)
     assert len(calls) == 1
     assert first["computed_at"] == second["computed_at"]
@@ -311,3 +313,95 @@ def test_movers_402_bazaar_metadata(client):
     assert resource["tags"] == main.DISCOVERY_TAGS
     assert required["accepts"][0]["amount"] == "20000"
     assert required["accepts"][0]["payTo"] == main.PAY_TO_ADDRESS
+
+
+# --- /movers refuses (422, not charged) when no coin can be ranked -----------
+
+from tests.test_paid_call_log import PAYER, SIGNATURE, paid  # noqa: E402,F401
+
+
+def _movers_payment_header(client):
+    import base64
+
+    challenge = json.loads(base64.b64decode(client.get("/movers").headers["payment-required"]))
+    accepted = challenge["accepts"][0]
+    payload = {
+        "x402Version": 2,
+        "resource": challenge["resource"],
+        "accepted": accepted,
+        "payload": {
+            "signature": SIGNATURE,
+            "authorization": {
+                "from": PAYER,
+                "to": accepted["payTo"],
+                "value": accepted["amount"],
+                "validAfter": "0",
+                "validBefore": "9999999999",
+                "nonce": "0x" + "00" * 32,
+            },
+        },
+    }
+    return base64.b64encode(json.dumps(payload).encode()).decode()
+
+
+def test_paid_movers_with_nothing_rankable_is_422_and_never_settled(paid, monkeypatch, caplog):  # noqa: F811
+    import logging
+
+    client, _ = paid
+    _counting_fetch(monkeypatch)  # BTC and ETH have enough news now...
+    settles = []
+    real_settle = main.facilitator.settle
+
+    async def counting_settle(payload, requirements):
+        settles.append(1)
+        return await real_settle(payload, requirements)
+
+    monkeypatch.setattr(main.facilitator, "settle", counting_settle)
+
+    # ...but the archive is empty, so no coin has a ~24h-ago reading.
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        r = client.get("/movers", headers={"PAYMENT-SIGNATURE": _movers_payment_header(client)})
+    assert r.status_code == 422
+    assert "Not charged." in r.json()["detail"]
+    assert settles == []
+    assert "movers_refused" in caplog.text
+
+    # Once a coin can be ranked, the same paid call returns 200 and settles once.
+    _insert_hourly("BTC", datetime.now(UTC) - timedelta(hours=24), 0.05, 20.0)
+    r = client.get("/movers", headers={"PAYMENT-SIGNATURE": _movers_payment_header(client)})
+    assert r.status_code == 200
+    assert r.json()["coins_ranked"] == 1
+    assert settles == [1]
+
+
+def test_movers_description_says_refused_and_not_charged():
+    d = main.MOVERS_ROUTE_DESCRIPTION
+    assert "If no coin can be ranked, the call is refused and not charged." in d
+    assert len(d) < 500
+
+
+# --- /movers reads only the archive rows around ~24h ago ---------------------
+
+def test_movers_reads_only_a_window_of_the_archive(db, monkeypatch):
+    seen = []
+    real_hourly_rows = archive.hourly_rows
+
+    def spy(*args, **kwargs):
+        seen.append(kwargs)
+        return real_hourly_rows(*args, **kwargs)
+
+    monkeypatch.setattr(market.archive_module, "hourly_rows", spy)
+    _insert_hourly("BTC", NOW - timedelta(hours=24), 0.05, 20.0)   # in window
+    _insert_hourly("BTC", NOW - timedelta(hours=20), 0.10, 20.0)   # edge: exactly +4h, still in
+    _insert_hourly("BTC", NOW - timedelta(hours=40), 0.90, 20.0)   # outside: never returned
+    result = market.compute_movers({"BTC": _payload("BTC", 0.30, 40.0)}, now=NOW)
+
+    [kwargs] = seen
+    target = NOW - market.MOVERS_LOOKBACK
+    assert kwargs["start"] == target - market.MOVERS_LOOKBACK_TOLERANCE
+    assert kwargs["end"] > target + market.MOVERS_LOOKBACK_TOLERANCE
+    assert kwargs["end"] - (target + market.MOVERS_LOOKBACK_TOLERANCE) <= timedelta(seconds=1)
+    returned = real_hourly_rows(**kwargs)
+    assert {r["observed_at"] for r in returned} == {
+        (NOW - timedelta(hours=24)).isoformat(), (NOW - timedelta(hours=20)).isoformat()}
+    assert result["movers_up"][0]["previous_score"] == pytest.approx(0.05)
