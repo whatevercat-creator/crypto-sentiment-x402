@@ -556,25 +556,38 @@ _PAID_PREFIXES = {
     "/sentiment/": ("sentiment_paid_call", PRICE_USD),
     "/history/": ("history_paid_call", archive.HISTORY_PRICE_USD),
 }
+# Paid x402 exact path (no symbol in the URL) -> (log event, price). Exact
+# match so e.g. /movers-foo can't be logged as a paid /movers call.
+_PAID_PATHS = {
+    "/movers": ("movers_paid_call", market.MOVERS_PRICE_USD),
+}
 
 
 class PaidCallLogMiddleware(BaseHTTPMiddleware):
-    """One JSON log line per successful paid /sentiment or /history call.
+    """One JSON log line per successful paid /sentiment, /history or /movers call.
     Wraps PaymentMiddlewareASGI because settlement happens there after the
     route handler returns: a 2xx from a paid route means the payment
     verified and settled (a failed settlement comes back as a 402). grep the
-    logs for "sentiment_paid_call" / "history_paid_call" to count paid usage."""
+    logs for "sentiment_paid_call" / "history_paid_call" / "movers_paid_call"
+    to count paid usage. /movers has no symbol in its URL, so its line has
+    symbol null (same keys as the others)."""
 
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         path = request.url.path
         prefix = next((p for p in _PAID_PREFIXES if path.startswith(p)), None)
-        if prefix and 200 <= response.status_code < 300:
+        if path in _PAID_PATHS:
+            (event, price), symbol = _PAID_PATHS[path], None
+        elif prefix:
             event, price = _PAID_PREFIXES[prefix]
+            symbol = unquote(path[len(prefix):]).upper()
+        else:
+            event = None
+        if event and 200 <= response.status_code < 300:
             logger.info(json.dumps({
                 "event": event,
                 "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "symbol": unquote(path[len(prefix):]).upper(),
+                "symbol": symbol,
                 "price": price,
                 "payer": _payer_from_signature(request.headers.get("payment-signature")),
                 "transaction": _settlement_tx(response.headers.get("payment-response")),
