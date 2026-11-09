@@ -451,3 +451,49 @@ def test_movers_zero_delta_in_neither_list(db):
     assert _symbols(result["movers_up"]) == ["A"]
     assert _symbols(result["movers_down"]) == ["C"]
     assert result["coins_ranked"] == 3  # Z was ranked, just didn't move
+
+
+# --- paid /movers calls are logged like /sentiment and /history ---------------
+
+def _movers_paid_lines(caplog):
+    lines = []
+    for record in caplog.records:
+        try:
+            data = json.loads(record.getMessage())
+        except ValueError:
+            continue
+        if isinstance(data, dict) and data.get("event") == "movers_paid_call":
+            lines.append(data)
+    return lines
+
+
+def test_paid_movers_call_logs_one_line_and_refusal_logs_none(paid, monkeypatch, caplog):  # noqa: F811
+    import logging
+    from tests.test_paid_call_log import TX
+
+    client, _ = paid
+    _counting_fetch(monkeypatch)
+
+    # Nothing rankable (empty archive): 422, not settled, no paid-call line.
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        r = client.get("/movers", headers={"PAYMENT-SIGNATURE": _movers_payment_header(client)})
+    assert r.status_code == 422
+    assert _movers_paid_lines(caplog) == []
+
+    # Rankable: 200, settled, exactly one line with the same keys as the
+    # other routes' paid-call lines (symbol null: /movers has none).
+    _insert_hourly("BTC", datetime.now(UTC) - timedelta(hours=24), 0.05, 20.0)
+    caplog.clear()
+    header = _movers_payment_header(client)
+    with caplog.at_level(logging.INFO, logger="app.main"):
+        r = client.get("/movers", headers={"PAYMENT-SIGNATURE": header})
+    assert r.status_code == 200
+    [line] = _movers_paid_lines(caplog)
+    assert set(line) == {"event", "ts", "symbol", "price", "payer", "transaction"}
+    assert line["symbol"] is None
+    assert line["price"] == market.MOVERS_PRICE_USD
+    assert line["payer"] == PAYER
+    assert line["transaction"] == TX
+    assert SIGNATURE not in caplog.text and header not in caplog.text
+    # And it isn't mistaken for a /sentiment or /history call.
+    assert '"sentiment_paid_call"' not in caplog.text and '"history_paid_call"' not in caplog.text
