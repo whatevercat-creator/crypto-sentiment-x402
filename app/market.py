@@ -23,6 +23,7 @@ redefining them, so they always agree with /sentiment's own "insufficient
 recent news" cutoff and bullish/bearish labels.
 """
 
+import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -39,6 +40,14 @@ BULLISH_AT, BEARISH_AT = window.BULLISH_AT, window.BEARISH_AT
 WINDOW_VERSION = window.WINDOW_VERSION
 
 MOVERS_PRICE_USD = os.environ.get("X402_MOVERS_PRICE_USD", "$0.02")
+
+# /market-sentiment is free and unauthenticated, so recomputing it live on
+# every request (a feed fetch across all 24 coins) would let anyone force
+# that work just by hitting the endpoint repeatedly. Cache the aggregate
+# for this long and serve the cached value in between -- a stale-by-up-to-
+# this-much index is the right trade for a free, high-traffic discovery
+# endpoint; the paid /sentiment/{symbol} stays live on every call.
+MARKET_SENTIMENT_CACHE_SECONDS = int(os.environ.get("MARKET_SENTIMENT_CACHE_SECONDS", 3600))
 MOVERS_LOOKBACK = timedelta(hours=24)
 # How far either side of exactly 24h ago an archived row can be and still
 # count as "the ~24h-ago reading" -- hourly logging has occasional gaps
@@ -111,12 +120,50 @@ def compute_market_index(payloads: dict) -> dict:
     }
 
 
-async def compute_market_sentiment(symbols: Optional[list] = None) -> dict:
-    """Live /market-sentiment payload: one fetch of the feeds (via
-    compute_sentiment_payloads) for `symbols` (default: every supported
-    coin), then aggregated by compute_market_index."""
-    payloads = await compute_sentiment_payloads(list(symbols or COIN_NAMES))
-    return compute_market_index(payloads)
+# In-process cache for the default (every supported coin) /market-sentiment
+# call. Keyed by nothing but time: there's only one cacheable shape (all of
+# COIN_NAMES), so a single slot is enough. The lock serializes concurrent
+# refreshes so a burst of requests after the cache goes stale triggers at
+# most one feed fetch, not one per request.
+_market_cache_lock = asyncio.Lock()
+_market_cache: dict = {"computed_at": None, "result": None}
+
+
+def _market_cache_is_fresh(now: datetime) -> bool:
+    computed_at = _market_cache["computed_at"]
+    return computed_at is not None and (now - computed_at).total_seconds() < MARKET_SENTIMENT_CACHE_SECONDS
+
+
+async def compute_market_sentiment(symbols: Optional[list] = None, now: Optional[datetime] = None) -> dict:
+    """/market-sentiment payload, cached for MARKET_SENTIMENT_CACHE_SECONDS
+    (default 1h) when called with the default coin list -- the shape every
+    real request uses. A custom `symbols` list (used by tests) always
+    recomputes live and never touches the cache.
+
+    `cached`, `computed_at` and `next_refresh_at` are added to the result so
+    callers can see exactly how fresh the number is -- this is a free,
+    best-effort index, not a claim of a live reading."""
+    now = now or datetime.now(timezone.utc)
+
+    if symbols is not None:
+        payloads = await compute_sentiment_payloads(list(symbols))
+        result = compute_market_index(payloads)
+        result.update(cached=False, computed_at=now.isoformat(), next_refresh_at=None)
+        return result
+
+    async with _market_cache_lock:
+        if not _market_cache_is_fresh(now):
+            payloads = await compute_sentiment_payloads(list(COIN_NAMES))
+            _market_cache["result"] = compute_market_index(payloads)
+            _market_cache["computed_at"] = now
+        computed_at = _market_cache["computed_at"]
+        next_refresh_at = computed_at + timedelta(seconds=MARKET_SENTIMENT_CACHE_SECONDS)
+        return {
+            **_market_cache["result"],
+            "cached": now != computed_at,
+            "computed_at": computed_at.isoformat(),
+            "next_refresh_at": next_refresh_at.isoformat(),
+        }
 
 
 def _closest_row(rows: list, target: datetime, tolerance: timedelta) -> Optional[dict]:
@@ -196,6 +243,9 @@ MARKET_SENTIMENT_EXAMPLE = {
         {"symbol": "SOL", "average_compound": -0.05, "weight": 0.2104},
     ],
     "window": WINDOW_VERSION,
+    "cached": True,
+    "computed_at": "2026-11-09T20:00:00+00:00",
+    "next_refresh_at": "2026-11-09T21:00:00+00:00",
 }
 
 MOVERS_EXAMPLE = {

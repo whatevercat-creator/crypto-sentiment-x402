@@ -5,6 +5,7 @@ aggregate endpoints built on app/market.py.
 Run with: python -m pytest
 """
 
+import asyncio
 import json
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -136,6 +137,17 @@ def test_movers_down_tail_when_more_coins_than_limit(db):
 
 # --- live routes -------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _reset_market_cache():
+    # Every test starts from a clean cache so one test's refresh doesn't
+    # leak into the next.
+    market._market_cache["computed_at"] = None
+    market._market_cache["result"] = None
+    yield
+    market._market_cache["computed_at"] = None
+    market._market_cache["result"] = None
+
+
 def test_get_market_sentiment_is_free_and_unauthenticated(client, monkeypatch):
     async def fake_payloads(symbols):
         return {
@@ -149,6 +161,9 @@ def test_get_market_sentiment_is_free_and_unauthenticated(client, monkeypatch):
     body = r.json()
     assert body["coins_included"] == 2
     assert "contributors" in body
+    assert body["cached"] is False
+    assert body["computed_at"]
+    assert body["next_refresh_at"]
 
 
 def test_get_movers_is_x402_gated(client):
@@ -160,3 +175,63 @@ def test_get_movers_is_x402_gated(client):
 def test_movers_in_x402_routes_table():
     assert "GET /movers" in main.routes
     assert main.routes["GET /movers"].accepts[0].price == market.MOVERS_PRICE_USD
+
+
+# --- /market-sentiment caching ------------------------------------------
+
+def test_market_sentiment_is_cached_within_ttl(monkeypatch):
+    calls = []
+
+    async def counting_payloads(symbols):
+        calls.append(list(symbols))
+        return {"BTC": _payload("BTC", 0.3, 40.0)}
+
+    monkeypatch.setattr(market, "compute_sentiment_payloads", counting_payloads)
+
+    t0 = NOW
+    first = asyncio.run(market.compute_market_sentiment(now=t0))
+    assert len(calls) == 1
+    assert first["cached"] is False
+
+    # A second call well within the TTL reuses the cached result -- no
+    # second feed fetch.
+    t1 = t0 + timedelta(minutes=5)
+    second = asyncio.run(market.compute_market_sentiment(now=t1))
+    assert len(calls) == 1
+    assert second["cached"] is True
+    assert second["market_sentiment"] == first["market_sentiment"]
+    assert second["computed_at"] == first["computed_at"]
+
+
+def test_market_sentiment_refreshes_after_ttl(monkeypatch):
+    calls = []
+
+    async def counting_payloads(symbols):
+        calls.append(list(symbols))
+        return {"BTC": _payload("BTC", 0.3, 40.0)}
+
+    monkeypatch.setattr(market, "compute_sentiment_payloads", counting_payloads)
+
+    t0 = NOW
+    asyncio.run(market.compute_market_sentiment(now=t0))
+    assert len(calls) == 1
+
+    t1 = t0 + timedelta(seconds=market.MARKET_SENTIMENT_CACHE_SECONDS + 1)
+    refreshed = asyncio.run(market.compute_market_sentiment(now=t1))
+    assert len(calls) == 2
+    assert refreshed["cached"] is False
+    assert refreshed["computed_at"] != NOW.isoformat()
+
+
+def test_market_sentiment_custom_symbols_bypasses_cache(monkeypatch):
+    calls = []
+
+    async def counting_payloads(symbols):
+        calls.append(list(symbols))
+        return {"BTC": _payload("BTC", 0.3, 40.0)}
+
+    monkeypatch.setattr(market, "compute_sentiment_payloads", counting_payloads)
+
+    asyncio.run(market.compute_market_sentiment(symbols=["BTC"], now=NOW))
+    asyncio.run(market.compute_market_sentiment(symbols=["BTC"], now=NOW))
+    assert len(calls) == 2  # never cached -- each call is live

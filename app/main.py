@@ -868,7 +868,10 @@ GET {PUBLIC_BASE_URL}/market-sentiment -- free, no auth. One market-wide
 sentiment index aggregated across every supported coin's current reading,
 weighted by each coin's effective_sample_size so thin-coverage altcoins
 don't swing it. Meant to be embedded (bot dashboards, Discord/Telegram
-bots); not a substitute for the per-coin detail /sentiment sells.
+bots); not a substitute for the per-coin detail /sentiment sells. Cached
+for up to {market.MARKET_SENTIMENT_CACHE_SECONDS}s (see computed_at /
+next_refresh_at in the response) so it can't be used to force a live
+24-coin feed fetch on every request.
 GET {PUBLIC_BASE_URL}/movers -- {market.MOVERS_PRICE_USD} USDC per call via x402.
 Ranks every supported coin by sentiment SHIFT over the last ~24h (today's
 reading vs. the archived hourly reading closest to 24h ago). One call
@@ -1115,7 +1118,12 @@ async def get_market_sentiment():
     doesn't swing it. Meant to be embedded (bot dashboards, Discord/Telegram
     bots, trackers) -- not a substitute for the paid /sentiment/{symbol}
     per-coin detail. See `contributors` for exactly which coins counted and
-    how much each one weighed."""
+    how much each one weighed.
+
+    Cached for market.MARKET_SENTIMENT_CACHE_SECONDS (default 1h): being
+    free and unauthenticated, this must not let a caller force a live
+    24-coin feed fetch on every request. `cached`, `computed_at` and
+    `next_refresh_at` say exactly how fresh the number is."""
     return JSONResponse(await market.compute_market_sentiment())
 
 
