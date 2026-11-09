@@ -67,6 +67,7 @@ from app.billing import (
 from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app import archive
+from app import market
 from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router
@@ -306,6 +307,19 @@ HISTORY_OUTPUT_SCHEMA = {
     "required": ["symbol", "start", "end", "count", "rows"],
 }
 
+MOVERS_OUTPUT_SCHEMA = {
+    "properties": {
+        "movers_up": {"type": "array", "items": {"type": "object"}},
+        "movers_down": {"type": "array", "items": {"type": "object"}},
+        "coins_ranked": {"type": "integer"},
+        "coins_considered": {"type": "integer"},
+        "lookback_hours": {"type": "number"},
+        "window": {"type": "string"},
+        "computed_at": {"type": "string"},
+    },
+    "required": ["movers_up", "movers_down", "coins_ranked", "coins_considered", "computed_at"],
+}
+
 SENTIMENT_DISCOVERY = declare_discovery_extension(
     # symbol is a PATH param (/sentiment/BTC), not a query param.
     # No query params at all.
@@ -357,6 +371,22 @@ HISTORY_DISCOVERY["bazaar"]["info"]["input"].update(
     pathParams={"symbol": archive.HISTORY_EXAMPLE["symbol"]},
 )
 
+MOVERS_DISCOVERY = declare_discovery_extension(
+    # No path params: /movers ranks across all coins, not one symbol.
+    input_schema={
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Max coins in movers_up and movers_down each. Default "
+                f"{market.MOVERS_DEFAULT_LIMIT}, max {market.MOVERS_MAX_LIMIT}.",
+            },
+        },
+    },
+    output=OutputConfig(example=market.MOVERS_EXAMPLE, schema=MOVERS_OUTPUT_SCHEMA),
+)
+# Same reason as SENTIMENT_DISCOVERY above.
+MOVERS_DISCOVERY["bazaar"]["info"]["input"].update(method="GET")
+
 OUTLET_LIST = ", ".join(NEWS_OUTLETS)
 # Bazaar discovery copy (resource.description / serviceName / tags in the
 # 402). Keep each description under 500 characters; the Bazaar listing
@@ -378,6 +408,14 @@ HISTORY_ROUTE_DESCRIPTION = (
     "needs past readings, e.g. to backtest or compare with price. Query start/end as ISO "
     "8601: default last 7 days, max 30 per call. An unlogged coin, an invalid range, or a "
     "range with no readings or no headlines is refused and not charged. Coverage: /archive."
+)
+MOVERS_ROUTE_DESCRIPTION = (
+    f"Crypto sentiment movers: ranks {len(COIN_NAMES)} coins by news-sentiment shift over "
+    "~24h, current reading (refreshed hourly, see computed_at) vs. the archived reading "
+    "~24h earlier. Returns movers_up/movers_down (symbol, current_score, previous_score, "
+    "delta). Use when an agent scans for what moved instead of looping /sentiment over "
+    "every coin. Coins without enough news now and ~24h ago are left out, not guessed at. "
+    "If no coin can be ranked, the call is refused and not charged."
 )
 DISCOVERY_SERVICE_NAME = "Crypto Sentiment API"
 DISCOVERY_TAGS = ["crypto", "sentiment", "news", "trading", "bitcoin"]
@@ -412,6 +450,21 @@ routes = {
         service_name=DISCOVERY_SERVICE_NAME,
         tags=DISCOVERY_TAGS,
         extensions=HISTORY_DISCOVERY,
+    ),
+    "GET /movers": RouteConfig(
+        accepts=[
+            PaymentOption(
+                scheme="exact",
+                price=market.MOVERS_PRICE_USD,
+                network=CAIP2_NETWORK,
+                pay_to=PAY_TO_ADDRESS,
+            ),
+        ],
+        description=MOVERS_ROUTE_DESCRIPTION,
+        mime_type="application/json",
+        service_name=DISCOVERY_SERVICE_NAME,
+        tags=DISCOVERY_TAGS,
+        extensions=MOVERS_DISCOVERY,
     ),
     # NOTE: /v1/sentiment/* is intentionally NOT listed here -- it's the
     # Stripe-subscription lane, gated by verify_and_charge_api_key() below
@@ -695,6 +748,8 @@ def _root_index() -> dict:
         "paid_endpoint": "/sentiment/{symbol}",
         "example": "/sentiment/BTC",
         "history": f"/history/{{symbol}} (hourly readings, {archive.HISTORY_PRICE_USD} per call via x402; coverage at /archive)",
+        "market_sentiment": "/market-sentiment (free, no auth: one aggregate index across every supported coin)",
+        "movers": f"/movers (ranked sentiment shift over ~24h across every supported coin, {market.MOVERS_PRICE_USD} per call via x402)",
         "subscriptions": "/billing/pricing",
         "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
         "dataset": "/dataset/info",
@@ -749,7 +804,7 @@ async def google_site_verification_file():
 # Disallowed: key-gated and per-customer paths (/integrations/ URLs carry
 # an API key).
 ROBOTS_DISALLOW = ("/v1/", "/billing/", "/alerts/", "/rapidapi/", "/integrations/")
-SITEMAP_PATHS = ("/", "/archive", "/docs", "/llms.txt", "/validation", "/transparency")
+SITEMAP_PATHS = ("/", "/archive", "/docs", "/llms.txt", "/validation", "/transparency", "/market-sentiment")
 
 
 @app.get("/robots.txt", include_in_schema=False)
@@ -806,6 +861,23 @@ gets a 4xx and is not charged, and so does a range in which every hour had
 zero matching headlines (404 "no_headlines_in_range"). What exists (symbols,
 first reading, row counts, missing hours, coverage_7d_pct = share of the
 last 7 days' hours with headlines): GET /archive (free).
+
+## Market-wide index and movers (free + x402)
+GET {PUBLIC_BASE_URL}/market-sentiment -- free, no auth. One market-wide
+sentiment index aggregated across every supported coin's current reading,
+weighted by each coin's effective_sample_size so thin-coverage altcoins
+don't swing it. Meant to be embedded (bot dashboards, Discord/Telegram
+bots); not a substitute for the per-coin detail /sentiment sells. Cached
+for up to {market.MARKET_SENTIMENT_CACHE_SECONDS}s (see computed_at /
+next_refresh_at in the response) so it can't be used to force a live
+24-coin feed fetch on every request.
+GET {PUBLIC_BASE_URL}/movers -- {market.MOVERS_PRICE_USD} USDC per call via x402.
+Ranks every supported coin by sentiment SHIFT over the last ~24h (the
+current reading, refreshed hourly from the same cache as /market-sentiment
+and dated by computed_at, vs. the archived hourly reading closest to 24h
+before it). One call
+instead of looping /sentiment over every symbol. ?limit= caps movers_up and
+movers_down (default {market.MOVERS_DEFAULT_LIMIT}, max {market.MOVERS_MAX_LIMIT}).
 
 ## Alternative access (not x402)
 - GET /v1/sentiment/{{symbol}} -- X-API-Key header, Stripe subscription quota
@@ -875,11 +947,16 @@ async def well_known_x402():
                 "method": "GET",
                 "description": "Hourly sentiment readings for a ticker over a time range (default 7 days, max 30).",
             },
+            {
+                "url": f"{PUBLIC_BASE_URL}/movers",
+                "method": "GET",
+                "description": "Coins ranked by sentiment shift over the last ~24h, across all supported symbols.",
+            },
         ],
         "attestation": {"type": "none"},
         "docs": f"{PUBLIC_BASE_URL}/docs",
         "contact": "hi@forgealone.com",
-        "updated": "2026-11-06T00:00:00Z",
+        "updated": "2026-11-09T00:00:00Z",
     }
 
 
@@ -1027,6 +1104,91 @@ async def archive_page(request: Request):
     if "text/html" in request.headers.get("accept", "").lower():
         return HTMLResponse(archive.render_archive_html(summary, PUBLIC_BASE_URL), headers={"Vary": "Accept"})
     return JSONResponse(summary, headers={"Vary": "Accept"})
+
+
+@app.get(
+    "/market-sentiment",
+    tags=[TAG_FREE],
+    openapi_extra={"security": []},
+    responses={200: {"content": {"application/json": {"example": market.MARKET_SENTIMENT_EXAMPLE}}}},
+)
+async def get_market_sentiment():
+    """Free, unauthenticated market-wide sentiment index: one number
+    aggregating every supported coin's current reading, weighted by each
+    coin's effective_sample_size so a quiet-news day for thin altcoins
+    doesn't swing it. Meant to be embedded (bot dashboards, Discord/Telegram
+    bots, trackers) -- not a substitute for the paid /sentiment/{symbol}
+    per-coin detail. See `contributors` for exactly which coins counted and
+    how much each one weighed.
+
+    Cached for market.MARKET_SENTIMENT_CACHE_SECONDS (default 1h): being
+    free and unauthenticated, this must not let a caller force a live
+    24-coin feed fetch on every request. `cached`, `computed_at` and
+    `next_refresh_at` say exactly how fresh the number is."""
+    return JSONResponse(await market.compute_market_sentiment())
+
+
+MOVERS_PAYMENT_INFO = {
+    "x-payment-info": {
+        "price": {"mode": "fixed", "currency": "USD", "amount": market.MOVERS_PRICE_USD.lstrip("$")},
+        "protocols": [{"x402": {}}],
+    }
+}
+
+
+@app.get(
+    "/movers",
+    tags=[TAG_PAID],
+    openapi_extra=MOVERS_PAYMENT_INFO,
+    responses={
+        200: {
+            "description": "Coins ranked by sentiment shift over the last ~24h.",
+            "content": {"application/json": {"example": market.MOVERS_EXAMPLE}},
+        },
+        402: {
+            "description": "Payment required. The x402 payment requirements are in "
+            "the PAYMENT-REQUIRED header and mirrored in the JSON body."
+        },
+        422: {
+            "description": "No coin had enough recent news both now and ~24h ago to rank "
+            "a shift. Nothing is returned. Not charged."
+        },
+    },
+)
+async def get_movers(
+    limit: int = Query(
+        market.MOVERS_DEFAULT_LIMIT,
+        ge=1,
+        le=market.MOVERS_MAX_LIMIT,
+        description="Max coins in movers_up and movers_down each.",
+    ),
+):
+    """x402 pay-per-call: ranks coins by sentiment SHIFT over the last ~24h,
+    built from the same per-coin readings /sentiment and /history already
+    compute -- one call instead of looping /sentiment over every symbol.
+    The current side comes from the shared hourly cache (same as
+    /market-sentiment), so a paid call doesn't wait on a live 24-coin feed
+    fetch; computed_at says how fresh it is.
+
+    If no coin can be ranked, refuse with a 422 before anything is returned:
+    we don't charge for answers we don't have, and the x402 middleware never
+    settles a payment on a 4xx (same pattern as refuse_if_insufficient)."""
+    result = await market.compute_movers_cached(limit=limit)
+    if result["coins_ranked"] == 0:
+        logger.info(json.dumps({
+            "event": "movers_refused",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "coins_considered": result["coins_considered"],
+            "computed_at": result["computed_at"],
+        }))
+        raise HTTPException(
+            status_code=422,
+            detail="No coin had enough recent news both now and ~24h ago to rank a "
+            f"sentiment shift (effective sample size {market.MIN_EFFECTIVE_SAMPLE} needed on "
+            "both sides). Not charged. Try again later, or /market-sentiment (free) for the "
+            "current reading.",
+        )
+    return JSONResponse(result)
 
 
 HISTORY_PAYMENT_INFO = {
