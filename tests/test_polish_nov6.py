@@ -123,8 +123,12 @@ def test_insufficient_news_refusals_match_across_lanes(paid, client, key, monkey
 
 def test_well_known_x402_updated_is_current(client):  # noqa: F811
     body = client.get("/.well-known/x402").json()
-    assert body["updated"] == "2026-11-06T00:00:00Z"
-    assert [r["url"].rsplit("/", 2)[-2] for r in body["resources"]] == ["sentiment", "history"]
+    assert body["updated"] == "2026-11-09T00:00:00Z"
+    assert [r["url"] for r in body["resources"]] == [
+        f"{main.PUBLIC_BASE_URL}/sentiment/{{symbol}}",
+        f"{main.PUBLIC_BASE_URL}/history/{{symbol}}",
+        f"{main.PUBLIC_BASE_URL}/movers",
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -175,7 +179,7 @@ def test_sitemap_xml(client):  # noqa: F811
     assert r.status_code == 200 and r.headers["content-type"].startswith("application/xml")
     locs = re.findall(r"<loc>([^<]+)</loc>", r.text)
     base = main.PUBLIC_BASE_URL
-    assert locs == [base + p for p in ("/", "/archive", "/docs", "/llms.txt", "/validation", "/transparency")]
+    assert locs == [base + p for p in ("/", "/archive", "/docs", "/llms.txt", "/validation", "/transparency", "/market-sentiment")]
 
 
 @pytest.mark.parametrize("path,canonical", [("/", "/"), ("/archive", "/archive")])

@@ -94,7 +94,7 @@ def test_non_browser_gets_original_json(client, headers):
     # Every original key keeps its value (agents depend on them); the only
     # addition is the /history pointer.
     assert {k: body[k] for k in ORIGINAL_ROOT_JSON} == ORIGINAL_ROOT_JSON
-    assert set(body) - set(ORIGINAL_ROOT_JSON) == {"history"}
+    assert set(body) - set(ORIGINAL_ROOT_JSON) == {"history", "market_sentiment", "movers"}
     assert body["history"].startswith("/history/{symbol}")
 
 
