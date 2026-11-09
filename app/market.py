@@ -249,11 +249,16 @@ def compute_movers(current: dict, limit: int = MOVERS_DEFAULT_LIMIT, now: Option
             "previous_observed_at": prev["observed_at"],
         })
 
-    shifts.sort(key=lambda s: s["delta"], reverse=True)
+    # Direction decides the list, not rank: movers_up only has rises (largest
+    # first), movers_down only falls (largest fall first), each capped at
+    # `limit`. A coin with delta 0 is in neither but still counts in
+    # coins_ranked.
+    rising = sorted((s for s in shifts if s["delta"] > 0), key=lambda s: s["delta"], reverse=True)
+    falling = sorted((s for s in shifts if s["delta"] < 0), key=lambda s: s["delta"])
 
     return {
-        "movers_up": shifts[:limit],
-        "movers_down": list(reversed(shifts[-limit:])) if len(shifts) > limit else [],
+        "movers_up": rising[:limit],
+        "movers_down": falling[:limit],
         "coins_ranked": len(shifts),
         "coins_considered": len(current),
         "lookback_hours": MOVERS_LOOKBACK.total_seconds() / 3600,

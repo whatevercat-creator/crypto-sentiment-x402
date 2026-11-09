@@ -119,8 +119,9 @@ def test_movers_ranks_by_shift_and_requires_both_sides_sufficient(db):
     assert result["coins_considered"] == 4
     assert result["movers_up"][0]["symbol"] == "BTC"
     assert result["movers_up"][0]["delta"] == pytest.approx(0.25, abs=1e-4)
-    # Only 2 coins ranked and limit=10 -> no separate movers_down tail.
-    assert result["movers_down"] == []
+    # Direction decides the list: ETH fell, so it's in movers_down only.
+    assert [c["symbol"] for c in result["movers_up"]] == ["BTC"]
+    assert [c["symbol"] for c in result["movers_down"]] == ["ETH"]
 
 
 def test_movers_down_tail_when_more_coins_than_limit(db):
@@ -405,3 +406,48 @@ def test_movers_reads_only_a_window_of_the_archive(db, monkeypatch):
     assert {r["observed_at"] for r in returned} == {
         (NOW - timedelta(hours=24)).isoformat(), (NOW - timedelta(hours=20)).isoformat()}
     assert result["movers_up"][0]["previous_score"] == pytest.approx(0.05)
+
+
+# --- movers_up only rises, movers_down only falls ----------------------------
+
+def _ranked(deltas, limit=10):
+    """compute_movers for {symbol: delta}: each coin was 0.0 ~24h ago and is
+    `delta` now, both with plenty of news."""
+    current = {sym: _payload(sym, delta, 30.0) for sym, delta in deltas.items()}
+    for sym in current:
+        _insert_hourly(sym, NOW - timedelta(hours=24), 0.0, 20.0)
+    return market.compute_movers(current, limit=limit, now=NOW)
+
+
+def _symbols(entries):
+    return [e["symbol"] for e in entries]
+
+
+def test_movers_all_rising(db):
+    result = _ranked({"A": 0.10, "B": 0.30, "C": 0.20}, limit=2)
+    assert _symbols(result["movers_up"]) == ["B", "C"]  # largest rise first, capped at 2
+    assert result["movers_down"] == []
+    assert result["coins_ranked"] == 3
+
+
+def test_movers_all_falling(db):
+    result = _ranked({"A": -0.10, "B": -0.30, "C": -0.20}, limit=2)
+    assert result["movers_up"] == []
+    assert _symbols(result["movers_down"]) == ["B", "C"]  # largest fall first
+    assert result["coins_ranked"] == 3
+
+
+def test_movers_mixed_with_fewer_coins_than_limit(db):
+    # 4 coins, limit 10: a falling coin must never land in movers_up.
+    result = _ranked({"A": 0.25, "B": 0.05, "C": -0.30, "D": -0.10}, limit=10)
+    assert _symbols(result["movers_up"]) == ["A", "B"]
+    assert _symbols(result["movers_down"]) == ["C", "D"]
+    assert all(e["delta"] > 0 for e in result["movers_up"])
+    assert all(e["delta"] < 0 for e in result["movers_down"])
+
+
+def test_movers_zero_delta_in_neither_list(db):
+    result = _ranked({"A": 0.20, "Z": 0.0, "C": -0.20}, limit=10)
+    assert _symbols(result["movers_up"]) == ["A"]
+    assert _symbols(result["movers_down"]) == ["C"]
+    assert result["coins_ranked"] == 3  # Z was ranked, just didn't move
