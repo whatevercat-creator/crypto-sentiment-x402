@@ -12,7 +12,8 @@ per-coin sentiment pipeline (app/sentiment_service.py, app/archive.py):
     replacement for its per-coin detail.
 
   GET /movers  (paid, x402; wired up in app/main.py) -- ranks coins by
-    sentiment SHIFT over the last ~24h: today's live reading vs. the
+    sentiment SHIFT over the last ~24h: the current reading (shared hourly
+    cache, same as /market-sentiment) vs. the
     archived hourly reading closest to 24h ago (app.archive.hourly_rows).
     One call answers the question an agent scanning for opportunities
     actually wants, instead of looping /sentiment over every symbol --
@@ -120,13 +121,16 @@ def compute_market_index(payloads: dict) -> dict:
     }
 
 
-# In-process cache for the default (every supported coin) /market-sentiment
-# call. Keyed by nothing but time: there's only one cacheable shape (all of
+# In-process cache of the live per-coin payloads for every supported coin
+# (one compute_sentiment_payloads(COIN_NAMES) call = one feed fetch). Both
+# /market-sentiment (free) and the "now" side of /movers (paid) read from
+# it, so neither can trigger more than one live 24-coin fetch per
+# MARKET_SENTIMENT_CACHE_SECONDS. There's only one cacheable shape (all of
 # COIN_NAMES), so a single slot is enough. The lock serializes concurrent
 # refreshes so a burst of requests after the cache goes stale triggers at
 # most one feed fetch, not one per request.
 _market_cache_lock = asyncio.Lock()
-_market_cache: dict = {"computed_at": None, "result": None}
+_market_cache: dict = {"computed_at": None, "payloads": None}
 
 
 def _market_cache_is_fresh(now: datetime) -> bool:
@@ -134,9 +138,21 @@ def _market_cache_is_fresh(now: datetime) -> bool:
     return computed_at is not None and (now - computed_at).total_seconds() < MARKET_SENTIMENT_CACHE_SECONDS
 
 
+async def current_payloads(now: Optional[datetime] = None) -> tuple:
+    """(payloads, computed_at): the live per-coin payloads for every
+    supported coin, refreshed at most once per MARKET_SENTIMENT_CACHE_SECONDS.
+    Shared by /market-sentiment and /movers."""
+    now = now or datetime.now(timezone.utc)
+    async with _market_cache_lock:
+        if not _market_cache_is_fresh(now):
+            _market_cache["payloads"] = await compute_sentiment_payloads(list(COIN_NAMES))
+            _market_cache["computed_at"] = now
+        return _market_cache["payloads"], _market_cache["computed_at"]
+
+
 async def compute_market_sentiment(symbols: Optional[list] = None, now: Optional[datetime] = None) -> dict:
-    """/market-sentiment payload, cached for MARKET_SENTIMENT_CACHE_SECONDS
-    (default 1h) when called with the default coin list -- the shape every
+    """/market-sentiment payload, from the shared cache (current_payloads,
+    default 1h) when called with the default coin list -- the shape every
     real request uses. A custom `symbols` list (used by tests) always
     recomputes live and never touches the cache.
 
@@ -151,19 +167,26 @@ async def compute_market_sentiment(symbols: Optional[list] = None, now: Optional
         result.update(cached=False, computed_at=now.isoformat(), next_refresh_at=None)
         return result
 
-    async with _market_cache_lock:
-        if not _market_cache_is_fresh(now):
-            payloads = await compute_sentiment_payloads(list(COIN_NAMES))
-            _market_cache["result"] = compute_market_index(payloads)
-            _market_cache["computed_at"] = now
-        computed_at = _market_cache["computed_at"]
-        next_refresh_at = computed_at + timedelta(seconds=MARKET_SENTIMENT_CACHE_SECONDS)
-        return {
-            **_market_cache["result"],
-            "cached": now != computed_at,
-            "computed_at": computed_at.isoformat(),
-            "next_refresh_at": next_refresh_at.isoformat(),
-        }
+    payloads, computed_at = await current_payloads(now)
+    next_refresh_at = computed_at + timedelta(seconds=MARKET_SENTIMENT_CACHE_SECONDS)
+    return {
+        **compute_market_index(payloads),
+        "cached": now != computed_at,
+        "computed_at": computed_at.isoformat(),
+        "next_refresh_at": next_refresh_at.isoformat(),
+    }
+
+
+async def compute_movers_cached(limit: int = MOVERS_DEFAULT_LIMIT, now: Optional[datetime] = None) -> dict:
+    """/movers payload. The "now" side comes from the shared hourly cache
+    (current_payloads), so a paid call never waits on a live 24-coin feed
+    fetch more than once per MARKET_SENTIMENT_CACHE_SECONDS; the ~24h-ago
+    side is the archived hourly reading closest to 24h before computed_at.
+    computed_at is returned so buyers see how fresh the "now" side is."""
+    payloads, computed_at = await current_payloads(now)
+    result = compute_movers(payloads, limit=limit, now=computed_at)
+    result["computed_at"] = computed_at.isoformat()
+    return result
 
 
 def _closest_row(rows: list, target: datetime, tolerance: timedelta) -> Optional[dict]:
@@ -273,4 +296,5 @@ MOVERS_EXAMPLE = {
     "coins_considered": 24,
     "lookback_hours": 24.0,
     "window": WINDOW_VERSION,
+    "computed_at": "2026-11-09T20:00:00+00:00",
 }

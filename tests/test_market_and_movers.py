@@ -142,10 +142,10 @@ def _reset_market_cache():
     # Every test starts from a clean cache so one test's refresh doesn't
     # leak into the next.
     market._market_cache["computed_at"] = None
-    market._market_cache["result"] = None
+    market._market_cache["payloads"] = None
     yield
     market._market_cache["computed_at"] = None
-    market._market_cache["result"] = None
+    market._market_cache["payloads"] = None
 
 
 def test_get_market_sentiment_is_free_and_unauthenticated(client, monkeypatch):
@@ -235,3 +235,79 @@ def test_market_sentiment_custom_symbols_bypasses_cache(monkeypatch):
     asyncio.run(market.compute_market_sentiment(symbols=["BTC"], now=NOW))
     asyncio.run(market.compute_market_sentiment(symbols=["BTC"], now=NOW))
     assert len(calls) == 2  # never cached -- each call is live
+
+
+# --- /movers reads the shared hourly cache ------------------------------
+
+def _counting_fetch(monkeypatch):
+    """Patch the one live fetch (compute_sentiment_payloads = one feed fetch
+    for all coins) with a counter; returns the list of calls."""
+    calls = []
+
+    async def counting_payloads(symbols):
+        calls.append(list(symbols))
+        return {"BTC": _payload("BTC", 0.30, 40.0), "ETH": _payload("ETH", -0.10, 30.0)}
+
+    monkeypatch.setattr(market, "compute_sentiment_payloads", counting_payloads)
+    return calls
+
+
+def test_two_movers_calls_within_ttl_cause_one_feed_fetch(db, monkeypatch):
+    # Calls the route handler directly (past the x402 paywall), as
+    # test_archive.py does for /history. limit is passed explicitly because
+    # its default is a FastAPI Query object.
+    calls = _counting_fetch(monkeypatch)
+    first = json.loads(asyncio.run(main.get_movers(limit=10)).body)
+    second = json.loads(asyncio.run(main.get_movers(limit=10)).body)
+    assert len(calls) == 1
+    assert first["computed_at"] == second["computed_at"]
+    assert first["computed_at"]
+
+
+def test_movers_refetches_after_ttl(db, monkeypatch):
+    calls = _counting_fetch(monkeypatch)
+    asyncio.run(market.compute_movers_cached(now=NOW))
+    asyncio.run(market.compute_movers_cached(now=NOW + timedelta(minutes=59)))
+    assert len(calls) == 1
+    later = asyncio.run(market.compute_movers_cached(
+        now=NOW + timedelta(seconds=market.MARKET_SENTIMENT_CACHE_SECONDS + 1)))
+    assert len(calls) == 2
+    assert later["computed_at"] != NOW.isoformat()
+
+
+def test_movers_and_market_sentiment_share_one_fetch(db, monkeypatch):
+    calls = _counting_fetch(monkeypatch)
+    asyncio.run(market.compute_market_sentiment(now=NOW))
+    asyncio.run(market.compute_movers_cached(now=NOW + timedelta(minutes=10)))
+    assert len(calls) == 1
+
+
+def test_movers_lookback_is_measured_from_computed_at(db, monkeypatch):
+    # The cached "now" reading was taken at NOW; a call 50 minutes later must
+    # compare it with the row ~24h before NOW (not before the call time) and
+    # report computed_at = NOW.
+    _counting_fetch(monkeypatch)
+    _insert_hourly("BTC", NOW - timedelta(hours=24), 0.05, 20.0)
+    _insert_hourly("BTC", NOW - timedelta(hours=23), 0.25, 20.0)
+    asyncio.run(market.compute_movers_cached(now=NOW))
+    result = asyncio.run(market.compute_movers_cached(now=NOW + timedelta(minutes=50)))
+    assert result["computed_at"] == NOW.isoformat()
+    btc = next(c for c in result["movers_up"] if c["symbol"] == "BTC")
+    assert btc["previous_score"] == pytest.approx(0.05)
+    assert btc["delta"] == pytest.approx(0.25, abs=1e-4)
+
+
+def test_movers_402_bazaar_metadata(client):
+    import base64
+
+    r = client.get("/movers")
+    assert r.status_code == 402
+    required = json.loads(base64.b64decode(r.headers["payment-required"]))
+    resource = required["resource"]
+    assert resource["description"].startswith("Crypto sentiment movers")
+    assert "Use when" in resource["description"]
+    assert len(resource["description"]) < 500
+    assert resource["serviceName"] == main.DISCOVERY_SERVICE_NAME
+    assert resource["tags"] == main.DISCOVERY_TAGS
+    assert required["accepts"][0]["amount"] == "20000"
+    assert required["accepts"][0]["payTo"] == main.PAY_TO_ADDRESS

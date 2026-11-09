@@ -77,7 +77,6 @@ from app.sentiment_service import (
     INSUFFICIENT_NEWS_RESPONSE,
     SOURCES,
     compute_sentiment_payload,
-    compute_sentiment_payloads,
     refuse_if_insufficient,
     require_supported_symbol,
 )
@@ -316,8 +315,9 @@ MOVERS_OUTPUT_SCHEMA = {
         "coins_considered": {"type": "integer"},
         "lookback_hours": {"type": "number"},
         "window": {"type": "string"},
+        "computed_at": {"type": "string"},
     },
-    "required": ["movers_up", "movers_down", "coins_ranked", "coins_considered"],
+    "required": ["movers_up", "movers_down", "coins_ranked", "coins_considered", "computed_at"],
 }
 
 SENTIMENT_DISCOVERY = declare_discovery_extension(
@@ -410,13 +410,12 @@ HISTORY_ROUTE_DESCRIPTION = (
     "range with no readings or no headlines is refused and not charged. Coverage: /archive."
 )
 MOVERS_ROUTE_DESCRIPTION = (
-    "Crypto sentiment movers: ranks coins by sentiment SHIFT over the last ~24h, built "
-    "from the same per-coin readings as /sentiment and /history -- one call instead of "
-    "looping /sentiment over every symbol. Returns movers_up/movers_down (symbol, "
-    "current_score, previous_score, delta). Use when an agent is scanning for what moved, "
-    "not just a single coin's current reading. A coin needs enough recent news now AND "
-    "~24h ago to be ranked (see /archive for coverage); thin coins are left out, not "
-    "guessed at."
+    f"Crypto sentiment movers: ranks {len(COIN_NAMES)} coins by news-sentiment shift over "
+    "~24h, current reading (refreshed hourly, see computed_at) vs. the archived reading "
+    "~24h earlier. Returns movers_up/movers_down (symbol, current_score, previous_score, "
+    "delta). Use when an agent scans for what moved instead of looping /sentiment over "
+    "every coin. Coins without enough news now and ~24h ago are left out, not guessed at; "
+    "one flat price per call."
 )
 DISCOVERY_SERVICE_NAME = "Crypto Sentiment API"
 DISCOVERY_TAGS = ["crypto", "sentiment", "news", "trading", "bitcoin"]
@@ -873,8 +872,10 @@ for up to {market.MARKET_SENTIMENT_CACHE_SECONDS}s (see computed_at /
 next_refresh_at in the response) so it can't be used to force a live
 24-coin feed fetch on every request.
 GET {PUBLIC_BASE_URL}/movers -- {market.MOVERS_PRICE_USD} USDC per call via x402.
-Ranks every supported coin by sentiment SHIFT over the last ~24h (today's
-reading vs. the archived hourly reading closest to 24h ago). One call
+Ranks every supported coin by sentiment SHIFT over the last ~24h (the
+current reading, refreshed hourly from the same cache as /market-sentiment
+and dated by computed_at, vs. the archived hourly reading closest to 24h
+before it). One call
 instead of looping /sentiment over every symbol. ?limit= caps movers_up and
 movers_down (default {market.MOVERS_DEFAULT_LIMIT}, max {market.MOVERS_MAX_LIMIT}).
 
@@ -1160,9 +1161,11 @@ async def get_movers(
 ):
     """x402 pay-per-call: ranks coins by sentiment SHIFT over the last ~24h,
     built from the same per-coin readings /sentiment and /history already
-    compute -- one call instead of looping /sentiment over every symbol."""
-    payloads = await compute_sentiment_payloads(list(COIN_NAMES))
-    return JSONResponse(market.compute_movers(payloads, limit=limit))
+    compute -- one call instead of looping /sentiment over every symbol.
+    The current side comes from the shared hourly cache (same as
+    /market-sentiment), so a paid call doesn't wait on a live 24-coin feed
+    fetch; computed_at says how fresh it is."""
+    return JSONResponse(await market.compute_movers_cached(limit=limit))
 
 
 HISTORY_PAYMENT_INFO = {
