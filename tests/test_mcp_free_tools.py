@@ -56,12 +56,12 @@ def test_no_cdp_vars_returns_friendly_message(monkeypatch):
         raise AssertionError("must not create a wallet without CDP vars")
 
     monkeypatch.setattr(mcp_pkg, "_get_payment_client", no_wallet)
-    out = asyncio.run(mcp_pkg.crypto_sentiment("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment("BTC"))
 
     assert "https://portal.cdp.coinbase.com" in out["detail"]
     assert "funded CDP wallet" in out["detail"]
     assert out["charged"] is False
-    assert out["free_tools"] == ["list_supported_coins", "archive_coverage", "price_quote"]
+    assert out["free_tools"] == ["list_supported_coins", "get_archive_coverage", "get_call_price", "get_market_sentiment"]
 
 
 def test_list_supported_coins_matches_app():
@@ -75,7 +75,7 @@ def test_list_supported_coins_matches_app():
 def test_price_quote_unsupported_symbol_makes_no_http_call(mock_http):
     state, calls = mock_http
     state["handler"] = lambda r: httpx.Response(500)
-    out = asyncio.run(mcp_pkg.price_quote("notacoin"))
+    out = asyncio.run(mcp_pkg.get_call_price("notacoin"))
     assert calls == []
     assert out["supported"] is False
     assert "not charged" in out["detail"]
@@ -87,7 +87,7 @@ def test_price_quote_parses_402_header(mock_http):
     state["handler"] = lambda r: httpx.Response(
         402, headers={"payment-required": header}, json={}
     )
-    out = asyncio.run(mcp_pkg.price_quote(" btc "))
+    out = asyncio.run(mcp_pkg.get_call_price(" btc "))
 
     assert len(calls) == 1
     assert calls[0].url.path == "/sentiment/BTC"
@@ -103,7 +103,7 @@ def test_price_quote_parses_402_header(mock_http):
 def test_price_quote_falls_back_to_402_body(mock_http):
     state, _ = mock_http
     state["handler"] = lambda r: httpx.Response(402, json=CHALLENGE)
-    out = asyncio.run(mcp_pkg.price_quote("ETH"))
+    out = asyncio.run(mcp_pkg.get_call_price("ETH"))
     assert out["payTo"] == PAY_TO
     assert out["price_usd"] == 0.01
 
@@ -112,14 +112,14 @@ def test_archive_coverage_passes_json_through(mock_http):
     state, calls = mock_http
     summary = {"as_of": "2026-10-15T00:00:00Z", "symbols": [{"symbol": "BTC", "rows": 5}]}
     state["handler"] = lambda r: httpx.Response(200, json=summary)
-    out = asyncio.run(mcp_pkg.archive_coverage())
+    out = asyncio.run(mcp_pkg.get_archive_coverage())
 
     assert out == summary
     assert calls[0].url.path == "/archive"
     assert calls[0].headers["accept"] == "application/json"
 
 
-# --- 0.1.4: symbol enums, get_hourly_history, version at initialize ---
+# --- 0.1.4: symbol enums, get_sentiment_history, version at initialize ---
 
 import contextlib
 import tomllib
@@ -138,7 +138,7 @@ def _tool_schemas():
     return asyncio.run(go())
 
 
-@pytest.mark.parametrize("tool", ["crypto_sentiment", "price_quote"])
+@pytest.mark.parametrize("tool", ["get_sentiment", "get_call_price"])
 def test_symbol_schema_is_enum_of_supported_coins(tool):
     prop = _tool_schemas()[tool]["properties"]["symbol"]
     assert prop["enum"] == list(mcp_pkg.SUPPORTED_COINS)
@@ -147,7 +147,7 @@ def test_symbol_schema_is_enum_of_supported_coins(tool):
 
 
 def test_hourly_history_schema():
-    schema = _tool_schemas()["get_hourly_history"]
+    schema = _tool_schemas()["get_sentiment_history"]
     assert schema["required"] == ["symbol"]
     for name in ("start", "end"):
         assert "ISO 8601" in schema["properties"][name]["description"]
@@ -161,12 +161,12 @@ def test_hourly_history_without_cdp_vars_returns_friendly_message(monkeypatch):
         raise AssertionError("must not create a wallet without CDP vars")
 
     monkeypatch.setattr(mcp_pkg, "_get_payment_client", no_wallet)
-    out = asyncio.run(mcp_pkg.get_hourly_history("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment_history("BTC"))
 
     assert out["error"] == "no wallet configured"
     assert "https://portal.cdp.coinbase.com" in out["detail"]
     assert out["charged"] is False
-    assert out["free_tools"] == ["list_supported_coins", "archive_coverage", "price_quote"]
+    assert out["free_tools"] == ["list_supported_coins", "get_archive_coverage", "get_call_price", "get_market_sentiment"]
 
 
 @pytest.fixture
@@ -199,7 +199,7 @@ def mock_paid_http(monkeypatch):
 
 
 def test_hourly_history_url_without_range(mock_paid_http):
-    out = asyncio.run(mcp_pkg.get_hourly_history(" btc "))
+    out = asyncio.run(mcp_pkg.get_sentiment_history(" btc "))
     assert out == {"symbol": "BTC", "readings": []}
     assert len(mock_paid_http) == 1
     url = mock_paid_http[0].url
@@ -209,7 +209,7 @@ def test_hourly_history_url_without_range(mock_paid_http):
 
 def test_hourly_history_url_with_range(mock_paid_http):
     asyncio.run(
-        mcp_pkg.get_hourly_history(
+        mcp_pkg.get_sentiment_history(
             "ETH", start="2026-10-13T00:00:00Z", end="2026-10-14T00:00:00Z"
         )
     )
@@ -222,7 +222,7 @@ def test_hourly_history_url_with_range(mock_paid_http):
 
 
 def test_hourly_history_url_with_start_only(mock_paid_http):
-    asyncio.run(mcp_pkg.get_hourly_history("SOL", start="2026-10-13T00:00:00Z"))
+    asyncio.run(mcp_pkg.get_sentiment_history("SOL", start="2026-10-13T00:00:00Z"))
     assert dict(mock_paid_http[0].url.params) == {"start": "2026-10-13T00:00:00Z"}
 
 
@@ -249,7 +249,7 @@ def test_hourly_history_passes_no_readings_404_through(mock_paid_http):
     }
     mock_paid_http.state["response"] = lambda r: httpx.Response(404, json=body)
     out = asyncio.run(
-        mcp_pkg.get_hourly_history(
+        mcp_pkg.get_sentiment_history(
             "SOL", start="2026-10-01T00:00:00Z", end="2026-10-10T00:00:00Z"
         )
     )
@@ -262,6 +262,6 @@ def test_hourly_history_passes_no_readings_404_through(mock_paid_http):
 
 def test_paid_402_keeps_wallet_hint(mock_paid_http):
     mock_paid_http.state["response"] = lambda r: httpx.Response(402, json={})
-    out = asyncio.run(mcp_pkg.get_hourly_history("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment_history("BTC"))
     assert out["error"] == "API returned HTTP 402"
     assert "paying_wallet" in out and "USDC" in out["hint"]

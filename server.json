@@ -1,8 +1,10 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.whatevercat-creator/crypto-sentiment-x402",
-  "version": "0.1.7",
+  "version": "0.2.0",
+  "title": "Crypto News Sentiment (x402)",
   "description": "Crypto news sentiment for 24 coins: label, score and headlines behind it, paid per call via x402",
+  "websiteUrl": "https://crypto-sentiment-x402.onrender.com",
   "repository": {
     "url": "https://github.com/whatevercat-creator/crypto-sentiment-x402",
     "source": "github"
@@ -12,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "crypto-sentiment-x402-mcp",
-      "version": "0.1.7",
+      "version": "0.2.0",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "runtimeArguments": [
@@ -21,13 +23,13 @@
       "environmentVariables": [
         {
           "name": "CDP_API_KEY_ID",
-          "description": "Coinbase Developer Platform API key ID (portal.cdp.coinbase.com). Used to sign x402 payments from your own wallet. Only needed for the paid tools (crypto_sentiment, get_hourly_history); the free tools work without it.",
+          "description": "Coinbase Developer Platform API key ID (portal.cdp.coinbase.com). Used to sign x402 payments from your own wallet. Only needed for the paid tools (get_sentiment, get_sentiment_history, get_movers); the free tools work without it.",
           "isRequired": false,
           "isSecret": true
         },
         {
           "name": "CDP_API_KEY_SECRET",
-          "description": "Coinbase Developer Platform API key secret, paired with CDP_API_KEY_ID. Only needed for the paid tools (crypto_sentiment, get_hourly_history); the free tools work without it.",
+          "description": "Coinbase Developer Platform API key secret, paired with CDP_API_KEY_ID. Only needed for the paid tools (get_sentiment, get_sentiment_history, get_movers); the free tools work without it.",
           "isRequired": false,
           "isSecret": true
         },
@@ -52,6 +54,12 @@
         {
           "name": "SENTIMENT_PAY_TO",
           "description": "payTo address the paid tools expect in the 402; anything else is refused before signing. Defaults to the hosted API's wallet. Set it when SENTIMENT_API_URL points at your own deployment.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MAX_SPEND_USD_PER_SESSION",
+          "description": "Most this server signs for in total per run, in USD. Default 0.50; 0 turns the cap off. A paid call that would go over it is refused and not charged. Resets when the server restarts.",
           "isRequired": false,
           "isSecret": false
         }

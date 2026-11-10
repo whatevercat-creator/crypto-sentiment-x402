@@ -141,33 +141,50 @@ search engine for agents looking for x402 services.
 ## MCP server (Claude Desktop / Claude Code)
 
 Prefer agents calling this over MCP instead of raw HTTP? `mcp_server.py`
-wraps the same API as MCP tools (`crypto_sentiment`, `get_hourly_history`
-and three free info tools) -- the server pays
+wraps the same API as 7 MCP tools (paid: `get_sentiment`,
+`get_sentiment_history`, `get_movers`; free: `list_supported_coins`,
+`get_market_sentiment`, `get_archive_coverage`, `get_call_price`) -- the server pays
 for each call from its own CDP-managed wallet, so callers never touch
 crypto directly. See [MCP.md](MCP.md) for setup.
 
 ### Try it free
 
-Three tools need no wallet, no CDP key and pay nothing. The server starts
+Four tools need no wallet, no CDP key and pay nothing. The server starts
 without any CDP variables, so you can install it and try these first:
 
 - `list_supported_coins` — the 24 supported ticker symbols and names.
-- `archive_coverage` — what the hourly archive holds (`GET /archive`):
+- `get_market_sentiment` — one market-wide sentiment index across all 24
+  coins (`GET /market-sentiment`), refreshed at most hourly.
+- `get_archive_coverage` — what the hourly archive holds (`GET /archive`):
   first reading, row counts and missing hours per symbol.
-- `price_quote(symbol)` — makes one unpaid request and reads the 402
+- `get_call_price(symbol)` — makes one unpaid request and reads the 402
   payment requirements: price, network, asset and the `payTo` address.
 
-Two tools are paid, from your own CDP wallet in USDC on Base:
+Three tools are paid, from your own CDP wallet in USDC on Base:
 
-- `crypto_sentiment(symbol)` — the current reading, $0.01 per call.
+- `get_sentiment(symbol)` — the current reading, $0.01 per call.
   Unsupported coins and coins with too little recent news are refused and
   not charged.
-- `get_hourly_history(symbol, start, end)` — past hourly readings
+- `get_sentiment_history(symbol, start, end)` — past hourly readings
   (`GET /history/{symbol}`), $0.05 per call. Recorded live and never
   backfilled; `start`/`end` are ISO 8601, default the last 7 days, at most
-  30 days per call. The symbol has to be one `archive_coverage` lists as
+  30 days per call. The symbol has to be one `get_archive_coverage` lists as
   logged. Unlogged symbols, invalid ranges and ranges with no readings are
   refused and not charged.
+- `get_movers(limit)` — the coins whose sentiment rose or fell most over
+  the last ~24 hours (`GET /movers`), $0.02 per call. `limit` (1 to 24,
+  default 10) caps each list. Coins without enough news are left out; a
+  call that can rank no coin is refused and not charged.
+
+**Spend cap:** the server signs for at most $0.50 in total per run by
+default. A paid call that would go over it is refused and not charged. Set
+`MAX_SPEND_USD_PER_SESSION` to change it (`0` turns the cap off); the count
+resets when the server restarts.
+
+**Renamed in 0.2.0:** `crypto_sentiment` → `get_sentiment`,
+`get_hourly_history` → `get_sentiment_history`, `archive_coverage` →
+`get_archive_coverage`, `price_quote` → `get_call_price`. The old names are
+gone; see [CHANGELOG.md](CHANGELOG.md).
 
 Wallet setup is in [MCP.md](MCP.md).
 

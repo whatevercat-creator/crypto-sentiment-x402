@@ -3,8 +3,9 @@
 mcp-name: io.github.whatevercat-creator/crypto-sentiment-x402
 
 The `crypto_sentiment_x402_mcp` package exposes the sentiment API as MCP
-tools (`crypto_sentiment` for the current reading, `get_hourly_history` for
-past hourly readings, plus three free info tools) so Claude Desktop, Claude
+tools (`get_sentiment` for the current reading, `get_sentiment_history` for
+past hourly readings, `get_movers` for the biggest 24-hour shifts, plus four
+free tools) so Claude Desktop, Claude
 Code, or any other MCP client can call it directly as part of an agent's
 normal tool use — no separate HTTP client code needed on the caller's side.
 
@@ -27,28 +28,44 @@ not you.
 
 ## Try it free
 
-Three tools need no wallet, no CDP key and pay nothing. The server starts
+Four tools need no wallet, no CDP key and pay nothing. The server starts
 without any CDP variables, so you can install it and try these first:
 
 - `list_supported_coins` — the 24 supported ticker symbols and names
-  (the `symbol` inputs of `crypto_sentiment` and `price_quote` are typed as
+  (the `symbol` inputs of `get_sentiment` and `get_call_price` are typed as
   this list).
-- `archive_coverage` — what the hourly archive holds (`GET /archive`):
+- `get_market_sentiment` — one market-wide sentiment index across all 24
+  coins (`GET /market-sentiment`), refreshed at most hourly.
+- `get_archive_coverage` — what the hourly archive holds (`GET /archive`):
   first reading, row counts and missing hours per symbol.
-- `price_quote(symbol)` — makes one unpaid request and reads the 402
+- `get_call_price(symbol)` — makes one unpaid request and reads the 402
   payment requirements: price, network, asset and the `payTo` address.
 
-Two tools are paid, from your own CDP wallet in USDC on Base:
+Three tools are paid, from your own CDP wallet in USDC on Base:
 
-- `crypto_sentiment(symbol)` — the current reading, $0.01 per call.
+- `get_sentiment(symbol)` — the current reading, $0.01 per call.
   Unsupported coins and coins with too little recent news are refused and
   not charged.
-- `get_hourly_history(symbol, start, end)` — past hourly readings
+- `get_sentiment_history(symbol, start, end)` — past hourly readings
   (`GET /history/{symbol}`), $0.05 per call. Recorded live and never
   backfilled; `start`/`end` are ISO 8601, default the last 7 days, at most
-  30 days per call. The symbol has to be one `archive_coverage` lists as
+  30 days per call. The symbol has to be one `get_archive_coverage` lists as
   logged. Unlogged symbols, invalid ranges and ranges with no readings are
   refused and not charged.
+- `get_movers(limit)` — the coins whose sentiment rose or fell most over
+  the last ~24 hours (`GET /movers`), $0.02 per call. `limit` (1 to 24,
+  default 10) caps each list. Coins without enough news are left out; a
+  call that can rank no coin is refused and not charged.
+
+**Spend cap:** the server signs for at most $0.50 in total per run by
+default. A paid call that would go over it is refused and not charged. Set
+`MAX_SPEND_USD_PER_SESSION` to change it (`0` turns the cap off); the count
+resets when the server restarts.
+
+**Renamed in 0.2.0:** `crypto_sentiment` → `get_sentiment`,
+`get_hourly_history` → `get_sentiment_history`, `archive_coverage` →
+`get_archive_coverage`, `price_quote` → `get_call_price`. The old names are
+gone; see [CHANGELOG.md](CHANGELOG.md).
 
 Wallet setup is below.
 
@@ -102,7 +119,8 @@ pip install -r requirements-mcp.txt cdp-sdk x402
         "CDP_API_KEY_SECRET": "your-key-secret",
         "CDP_WALLET_NAME": "crypto-sentiment-mcp-wallet",
         "SENTIMENT_API_URL": "https://crypto-sentiment-x402.onrender.com",
-        "X402_NETWORK": "testnet"
+        "X402_NETWORK": "testnet",
+        "MAX_SPEND_USD_PER_SESSION": "0.50"
       }
     }
   }
@@ -123,9 +141,10 @@ to launch the server with those env vars set.
 
 ## 4. Use it
 
-Once registered, an agent can call the `crypto_sentiment` tool with a
-`symbol` argument (e.g. `BTC`), or `get_hourly_history` with a `symbol` and
-optional `start`/`end`, like any other tool — the payment happens
+Once registered, an agent can call the `get_sentiment` tool with a
+`symbol` argument (e.g. `BTC`), `get_sentiment_history` with a `symbol` and
+optional `start`/`end`, or `get_movers` with an optional `limit`, like any
+other tool — the payment happens
 transparently inside the call. If a call returns an `error` field, it's
 almost always the wallet needing more funds; the response includes the
 paying wallet's address to check.
