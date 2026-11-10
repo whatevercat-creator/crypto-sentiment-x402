@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crypto-sentiment-x402-mcp"
 version = "0.2.0"
-description = "Crypto news sentiment MCP server: bullish/bearish/neutral label, score and the headlines behind it for 24 coins, paid per call in USDC on Base via x402. Use when an agent needs current or hourly news sentiment for a crypto ticker."
+description = "Crypto news sentiment MCP server: bullish/bearish/neutral label, score and the headlines behind it for 24 coins, hourly history, 24h sentiment movers and a free market-wide sentiment index, paid per call in USDC on Base via x402. Use when an agent needs current, hourly or market-wide news sentiment for crypto, or which coins' sentiment is shifting."
 readme = "MCP.md"
 requires-python = ">=3.10"
 license = "MIT"

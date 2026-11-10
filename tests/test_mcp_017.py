@@ -28,6 +28,12 @@ def test_pypi_summary_leads_with_search_words():
     d = PROJECT["description"]
     assert d.startswith("Crypto news sentiment MCP server")
     assert "\n" not in d and len(d) <= 512  # PyPI summary: one line, 512 max
+    # 0.2.0: also names the movers and the free market-wide index, and still
+    # ends with a "Use when ..." sentence.
+    assert "24h sentiment movers" in d
+    assert "free market-wide sentiment index" in d
+    last = d.rsplit(". ", 1)[1]
+    assert last.startswith("Use when ") and last.endswith(".")
 
 
 def test_tool_descriptions_lead_with_search_words_then_use_when():
