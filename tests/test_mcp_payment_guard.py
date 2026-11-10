@@ -83,7 +83,7 @@ def test_matching_402_is_signed_and_paid(paid_api):
     state, calls = paid_api
     state["challenge"] = _challenge("10000")
 
-    out = asyncio.run(mcp_pkg.crypto_sentiment("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment("BTC"))
 
     assert out == {"symbol": "BTC", "paid": True}
     assert [_signed(r) for r in calls] == [False, True]
@@ -93,7 +93,7 @@ def test_over_price_is_refused_before_signing(paid_api):
     state, calls = paid_api
     state["challenge"] = _challenge("20000")  # $0.02 for a $0.01 tool
 
-    out = asyncio.run(mcp_pkg.crypto_sentiment("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment("BTC"))
 
     assert out["error"] == "refused: price/payTo mismatch, nothing was paid"
     assert out["charged"] is False
@@ -106,7 +106,7 @@ def test_history_over_price_is_refused(paid_api):
     state, calls = paid_api
     state["challenge"] = _challenge("50001")
 
-    out = asyncio.run(mcp_pkg.get_hourly_history("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment_history("BTC"))
 
     assert out["error"] == "refused: price/payTo mismatch, nothing was paid"
     assert out["expected"]["price_usd"] == 0.05
@@ -119,7 +119,7 @@ def test_wrong_pay_to_is_refused(paid_api):
         "50000", pay_to="0x2222222222222222222222222222222222222222"
     )
 
-    out = asyncio.run(mcp_pkg.get_hourly_history("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment_history("BTC"))
 
     assert out["error"] == "refused: price/payTo mismatch, nothing was paid"
     assert out["detail"] == [
@@ -141,7 +141,7 @@ def test_wrong_asset_or_network_is_refused(paid_api, overrides):
     state, calls = paid_api
     state["challenge"] = _challenge("10000", **overrides)
 
-    out = asyncio.run(mcp_pkg.crypto_sentiment("BTC"))
+    out = asyncio.run(mcp_pkg.get_sentiment("BTC"))
 
     assert out["error"] == "refused: price/payTo mismatch, nothing was paid"
     assert out["charged"] is False

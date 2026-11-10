@@ -319,9 +319,9 @@ exportable as CSV or JSON. Included with {escape(" and ".join(dataset_plans))}.<
 <li><a href="{GITHUB_URL}/blob/main/INTEGRATIONS.md">TradingView alert relay</a>: forward
 TradingView alerts enriched with current sentiment to your alert channels.</li>
 <li><a href="{PYPI_URL}">MCP server on PyPI</a>: <code>pip install crypto-sentiment-x402-mcp</code>
-gives an MCP client 5 tools: three free with no wallet (<code>list_supported_coins</code>,
-<code>archive_coverage</code>, <code>price_quote</code>) and two paid (<code>crypto_sentiment</code>,
-<code>get_hourly_history</code>).</li>
+gives an MCP client 7 tools: four free with no wallet (<code>list_supported_coins</code>,
+<code>get_market_sentiment</code>, <code>get_archive_coverage</code>, <code>get_call_price</code>)
+and three paid (<code>get_sentiment</code>, <code>get_sentiment_history</code>, <code>get_movers</code>).</li>
 </ul>
 </main>
 <footer>

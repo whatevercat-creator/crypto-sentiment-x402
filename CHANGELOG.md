@@ -4,6 +4,56 @@ Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
 HTTP API itself isn't versioned here; dated "HTTP API" entries note
 notable API changes.
 
+## 0.2.0
+
+**Migration: tools renamed, no aliases.** Update any client config or
+prompt that names the old tools:
+
+| 0.1.x | 0.2.0 |
+|---|---|
+| `crypto_sentiment` | `get_sentiment` |
+| `get_hourly_history` | `get_sentiment_history` |
+| `list_supported_coins` | `list_supported_coins` (unchanged) |
+| `archive_coverage` | `get_archive_coverage` |
+| `price_quote` | `get_call_price` |
+
+Every tool name now follows `verb_noun`, and every description names only
+tools that exist.
+
+New tools:
+- `get_market_sentiment` (free, no wallet): the market-wide sentiment index
+  from `GET /market-sentiment`, with `cached`, `computed_at` and
+  `next_refresh_at`. Refreshed at most hourly.
+- `get_movers` ($0.02 per call): the coins whose sentiment rose or fell most
+  over the last ~24 hours, from `GET /movers`. Optional `limit` (1 to 24,
+  default 10). Same payment path and pre-signing check as the other paid
+  tools: a 402 asking for more than $0.02, or for another payTo, network or
+  asset, is refused before signing. A call that can rank no coin gets HTTP
+  422 and isn't charged.
+
+Spend cap:
+- New `MAX_SPEND_USD_PER_SESSION`, on by default at $0.50 per server run.
+  A paid call that would take the total over it is refused before signing,
+  returned with `charged: false` and how to raise it. `0` turns the cap off;
+  a value that isn't a non-negative number falls back to $0.50. Spending is
+  counted when a payment is approved for signing.
+
+Descriptions and titles:
+- Titles are longer than the tool names and end in "(free)" or "(paid)".
+- `get_sentiment` says each call fetches and scores the feeds live (no
+  cache), so repeat calls can differ as news arrives.
+- `get_sentiment_history`'s refusal list is one sentence instead of a
+  bulleted block; every not-charged case is kept.
+- Each paid tool's description says how its inputs are used (path or query
+  parameter). The input schema descriptions are unchanged apart from the
+  renamed tool in `get_sentiment_history`'s `symbol`.
+- `get_call_price` lists all three paid prices.
+
+Release files: version 0.2.0 in pyproject.toml and both places in
+server.json; server.json gains `title`, `websiteUrl` and the
+`MAX_SPEND_USD_PER_SESSION` variable. README, MCP.md and the API home page
+list all 7 tools.
+
 ## 0.1.7
 
 - Search words first. The MCP Registry description (server.json, 96 of

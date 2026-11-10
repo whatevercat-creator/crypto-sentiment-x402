@@ -10,13 +10,15 @@ import pytest
 import crypto_sentiment_x402_mcp as mcp_pkg
 
 FREE = {
-    "list_supported_coins": "List Supported Coins",
-    "archive_coverage": "Archive Coverage",
-    "price_quote": "Price Quote",
+    "list_supported_coins": "List Supported Crypto Coins (free)",
+    "get_archive_coverage": "Sentiment Archive Coverage (free)",
+    "get_call_price": "Live x402 Price of a Sentiment Call (free)",
+    "get_market_sentiment": "Crypto Market Sentiment Index (free)",
 }
 PAID = {
-    "crypto_sentiment": "Current Crypto Sentiment",
-    "get_hourly_history": "Hourly Sentiment History",
+    "get_sentiment": "Current Crypto News Sentiment (paid)",
+    "get_sentiment_history": "Hourly Crypto Sentiment History (paid)",
+    "get_movers": "Biggest 24h Crypto Sentiment Movers (paid)",
 }
 
 
@@ -62,7 +64,7 @@ def test_paid_tool_annotations(name):
 
 
 def test_crypto_sentiment_description():
-    d = " ".join(_tools()["crypto_sentiment"].description.split())
+    d = " ".join(_tools()["get_sentiment"].description.split())
     assert "$0.01" in d
     assert "list_supported_coins" in d
     assert "uppercase" in d
@@ -72,20 +74,22 @@ def test_crypto_sentiment_description():
 
 
 def test_get_hourly_history_description():
-    d = " ".join(_tools()["get_hourly_history"].description.split())
+    d = " ".join(_tools()["get_sentiment_history"].description.split())
     assert "$0.05" in d
     assert "Refused and not charged" in d
     for refusal in ("400", "symbol not in the archive", "no_readings_in_range", "no_headlines_in_range"):
         assert refusal in d, refusal
     assert "start <= observed_at < end" in d
     assert "30 days" in d and "7 days" in d
-    assert "check archive_coverage first" in d
+    assert "check get_archive_coverage first" in d
+    # 0.2.0: the refusal list is one sentence, not a bulleted block.
+    assert "\n    - " not in _tools()["get_sentiment_history"].description
 
 
 def test_price_quote_description():
-    d = " ".join(_tools()["price_quote"].description.split())
+    d = " ".join(_tools()["get_call_price"].description.split())
     assert "When not to use it" in d
-    assert "$0.01" in d and "$0.05" in d
+    assert "$0.01" in d and "$0.05" in d and "$0.02" in d
     assert "insufficient recent news" in d and "not charged" in d
     # The network/asset/payTo listing was dropped; the response carries them.
     assert "payTo" not in d
@@ -99,7 +103,7 @@ def test_list_supported_coins_description():
 
 
 def test_archive_coverage_description():
-    d = " ".join(_tools()["archive_coverage"].description.split())
+    d = " ".join(_tools()["get_archive_coverage"].description.split())
     assert d.count("Free") == 1
     assert "coverage_7d_pct" in d
     assert "not charged" in d
@@ -120,9 +124,9 @@ def test_descriptions_are_front_loaded():
 
 
 def test_history_symbol_is_still_a_free_string():
-    """Only a description was added: get_hourly_history still accepts any
+    """Only a description was added: get_sentiment_history still accepts any
     string and leaves validation to the API."""
-    schema = _tools()["get_hourly_history"].input_schema["properties"]["symbol"]
+    schema = _tools()["get_sentiment_history"].input_schema["properties"]["symbol"]
     assert schema["type"] == "string"
     assert "enum" not in schema
     assert schema["description"]
