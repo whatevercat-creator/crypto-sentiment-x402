@@ -11,3 +11,5 @@ billing.db-journal
 build/
 dist/
 .baseline402/
+# Claude Code local settings (can hold approved commands with secrets)
+.claude/settings.local.json
