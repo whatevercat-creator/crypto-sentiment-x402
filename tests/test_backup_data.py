@@ -223,10 +223,94 @@ def test_default_output_folder_uses_utc_date(data, monkeypatch):
     monkeypatch.setattr(backup.os, "makedirs", stop_before_writing)
     with pytest.raises(SystemExit) as e:
         backup.main(["--data-dir", str(data)])
-    assert str(e.value) == "/tmp/backup-2026-11-08"
+    assert str(e.value) == "/tmp/backup-FULL-2026-11-08-delete-by-2026-12-08"
+    with pytest.raises(SystemExit) as e:
+        backup.main(["--data-dir", str(data), "--archive-only"])
+    assert str(e.value) == "/tmp/backup-ARCHIVE-2026-11-08"
 
 
 def test_sidecar_and_non_sqlite_files_are_skipped(data, tmp_path):
     (data / "billing.db-journal").write_bytes(b"")
     (data / "notes.txt").write_text("not a database")
     assert backup.find_sources(str(data), None, None) == [str((data / "billing.db").resolve())]
+
+
+# --- 30-day rule for full copies ----------------------------------------------
+
+def _at(y, m, d, hour=12):
+    from datetime import datetime, timezone
+
+    return datetime(y, m, d, hour, 20, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    "started,expected",
+    [
+        (_at(2026, 11, 8), "2026-12-08"),
+        (_at(2026, 12, 15), "2027-01-14"),  # across the year end
+        (_at(2027, 2, 10), "2027-03-12"),  # across a short month
+        (_at(2026, 11, 8, hour=3), "2026-12-08"),  # 03:20 UTC: UTC date, not Eastern
+    ],
+)
+def test_delete_by_date_is_30_days_after_the_utc_date(started, expected):
+    assert f"{backup.delete_by_date(started):%Y-%m-%d}" == expected
+
+
+def test_full_copy_writes_delete_by_file_and_prints_it_twice(data, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(backup, "_now", lambda: _at(2026, 11, 23))
+    out = tmp_path / "out"
+    backup.main(["--data-dir", str(data), "--out", str(out)])
+
+    marker = out / "DELETE-BY.txt"
+    text = marker.read_text()
+    assert text.splitlines()[0] == "DELETE BY: 2026-12-23"
+    assert "Made: 2026-11-23T12:20:00Z (UTC)" in text
+    assert "personal data" in text
+    assert oct(marker.stat().st_mode & 0o777) == "0o600"
+    printed = capsys.readouterr().out
+    banner = "DELETE BY 2026-12-23 (30 days): this copy contains personal data."
+    assert printed.count(banner) == 2
+    lines = printed.splitlines()
+    assert lines.index(banner) < next(i for i, l in enumerate(lines) if l.startswith("Sources"))
+    assert lines[-2] == banner and lines[-1].startswith("Done.")
+    # The marker isn't listed as a copy.
+    assert "DELETE-BY.txt" not in (out / "SHA256SUMS").read_text()
+
+
+def test_archive_only_has_no_delete_by(data, tmp_path, capsys):
+    out = tmp_path / "out"
+    backup.main(["--data-dir", str(data), "--out", str(out), "--archive-only"])
+    assert not (out / "DELETE-BY.txt").exists()
+    printed = capsys.readouterr().out
+    assert printed.count("No personal data: no delete-by date.") == 2
+    assert "DELETE BY" not in printed
+
+
+def test_marker_is_written_before_any_copy(data, tmp_path, monkeypatch):
+    """A run that fails mid-copy still leaves its folder marked."""
+    def boom(src, dest):
+        raise RuntimeError("copy failed")
+
+    monkeypatch.setattr(backup, "_now", lambda: _at(2026, 11, 23))
+    monkeypatch.setattr(backup, "full_copy", boom)
+    out = tmp_path / "out"
+    with pytest.raises(RuntimeError):
+        backup.main(["--data-dir", str(data), "--out", str(out)])
+    assert (out / "DELETE-BY.txt").read_text().startswith("DELETE BY: 2026-12-23")
+
+
+@pytest.mark.parametrize(
+    "existing,expected",
+    [
+        ("DELETE BY: 2026-12-01\n", "2026-12-01"),  # earlier deadline already there: kept
+        ("DELETE BY: 2027-06-01\n", "2026-12-23"),  # later one: never extends, today's wins
+        ("not a date\n", "2026-12-23"),  # unreadable: replaced
+    ],
+)
+def test_existing_marker_keeps_the_earlier_date(data, tmp_path, monkeypatch, existing, expected):
+    monkeypatch.setattr(backup, "_now", lambda: _at(2026, 11, 23))
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "DELETE-BY.txt").write_text(existing)
+    backup.main(["--data-dir", str(data), "--out", str(out)])
+    assert (out / "DELETE-BY.txt").read_text().splitlines()[0] == f"DELETE BY: {expected}"

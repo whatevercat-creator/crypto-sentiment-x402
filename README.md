@@ -228,6 +228,11 @@ channel -- no new endpoint needed) or enrich TradingView price alerts
 with live sentiment before relaying them to your webhook/Discord/
 Telegram. See [INTEGRATIONS.md](INTEGRATIONS.md).
 
+TradingView alerts post to `POST /integrations/tradingview` with your API
+key in the JSON alert message (`"api_key"`), never in the URL. The older
+`/integrations/tradingview/<your-api-key>` URL still works but is
+deprecated, and will be removed after 60 days without use.
+
 ## API reference
 
 | Endpoint | Price | Description |

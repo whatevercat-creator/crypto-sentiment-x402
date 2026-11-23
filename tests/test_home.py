@@ -38,7 +38,7 @@ ORIGINAL_ROOT_JSON = {
     "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
     "dataset": "/dataset/info",
     "rapidapi": "/rapidapi/sentiment/{symbol} (RapidAPI-proxied traffic only)",
-    "integrations": "/integrations/tradingview/{api_key} (relays TradingView alerts through your existing /alerts/watch channels)",
+    "integrations": "/integrations/tradingview (relays TradingView alerts through your existing /alerts/watch channels; API key in the alert message's \"api_key\" field)",
     "signal_validation": "/validation (does the score lead or lag price? published whatever it shows)",
     "docs": "/docs",
 }
