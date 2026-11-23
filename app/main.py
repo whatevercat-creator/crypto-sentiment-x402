@@ -71,7 +71,7 @@ from app import market
 from app.home import render_home
 from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router
-from app.integrations import router as integrations_router
+from app.integrations import AccessLogKeyRedactor, router as integrations_router
 from app.coins import COIN_NAMES, validate_symbol
 from app.sentiment_service import (
     INSUFFICIENT_NEWS_RESPONSE,
@@ -687,6 +687,12 @@ app.include_router(dataset_router)
 app.include_router(rapidapi_router)
 app.include_router(integrations_router)
 
+# The deprecated TradingView form carries the API key in the URL path, and
+# uvicorn's access log (which Render keeps) records paths: redact it there.
+# Added at import, after uvicorn has set up its loggers; dictConfig never
+# removes a logger's existing filters anyway.
+logging.getLogger("uvicorn.access").addFilter(AccessLogKeyRedactor())
+
 _alert_task = None
 _snapshot_task = None
 _hourly_task = None
@@ -767,7 +773,7 @@ def _root_index() -> dict:
         "alerts": "/alerts/watch (requires an active Starter/Pro X-API-Key)",
         "dataset": "/dataset/info",
         "rapidapi": "/rapidapi/sentiment/{symbol} (RapidAPI-proxied traffic only)",
-        "integrations": "/integrations/tradingview/{api_key} (relays TradingView alerts through your existing /alerts/watch channels)",
+        "integrations": "/integrations/tradingview (relays TradingView alerts through your existing /alerts/watch channels; API key in the alert message's \"api_key\" field)",
         "signal_validation": "/validation (does the score lead or lag price? published whatever it shows)",
         "docs": "/docs",
     }

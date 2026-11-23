@@ -86,6 +86,7 @@ HIDDEN_ROUTES = [
     ("/billing/webhook", "post"),
     ("/billing/success", "get"),
     ("/billing/cancel", "get"),
+    ("/integrations/tradingview", "post"),
     ("/integrations/tradingview/{api_key}", "post"),
     ("/rapidapi/sentiment/{symbol}", "get"),
 ]

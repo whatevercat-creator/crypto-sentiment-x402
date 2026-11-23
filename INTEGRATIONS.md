@@ -74,22 +74,29 @@ Steps:
    enable **Webhook URL** and set it to:
 
    ```
-   https://<your-deployment>/integrations/tradingview/<your-api-key>
+   https://<your-deployment>/integrations/tradingview
    ```
 
-   (Your API key goes in the URL path, not a header -- TradingView
-   doesn't support custom headers on outbound webhooks.)
+   No key in the URL: URLs end up in request logs, so the key goes in
+   the alert message instead (next step). TradingView doesn't support
+   custom headers on outbound webhooks, so an `X-API-Key` header isn't
+   an option.
 
-3. Set the alert **Message** to JSON that includes the ticker:
+3. Set the alert **Message** to JSON with your API key and the ticker:
 
    ```json
-   {"symbol": "{{ticker}}", "price": "{{close}}", "time": "{{time}}"}
+   {"api_key": "<your-api-key>", "symbol": "{{ticker}}", "price": "{{close}}", "time": "{{time}}"}
    ```
 
-   Plain-text messages work too (e.g. just `BTCUSD`) as a fallback, but
-   JSON is more reliable since TradingView tickers vary
-   (`BTCUSD`, `BTCUSDT`, `BINANCE:BTCUSDT`) -- this endpoint strips
-   exchange prefixes and common quote-currency suffixes automatically.
+   The message has to be JSON, since it carries the key. The `api_key`
+   field is removed before anything is relayed, so your key never
+   appears in your webhook, Discord or Telegram messages. TradingView
+   tickers vary (`BTCUSD`, `BTCUSDT`, `BINANCE:BTCUSDT`): this endpoint
+   strips exchange prefixes and common quote-currency suffixes
+   automatically. `ticker` works as the field name too.
+
+   Treat the alert message like a password: anyone who can read your
+   TradingView alerts can see the key.
 
 4. When the alert fires, you'll get a message like:
 
@@ -99,15 +106,35 @@ Steps:
 
 If you haven't created a watch for that symbol first, the endpoint
 returns a 404 telling you to -- it enriches alerts through channels you
-control, it doesn't invent a delivery destination on its own.
+control, it doesn't invent a delivery destination on its own. A message
+without an `api_key` gets a 401, and one without a `symbol` (or
+`ticker`) a 400.
 
 Requires a Starter/Pro tier key (same as Zapier above, since this reuses
 the same `watches` table and channel).
 
-**Keep the subscription active.** The key in your webhook URL only works
+**Keep the subscription active.** The key in your alert message only works
 while its Stripe subscription is `active` -- cancel or refund it and the
 key flips to `canceled`, and every alert delivery after that gets a
 `403 This subscription is not active.` (TradingView will show this as a
 "webhook delivery failed" error on the alert.) If you're testing this
 end-to-end, expect to either keep the subscription running afterward or
 re-point the alert at a fresh active key once you're done testing.
+
+### Deprecated: the key in the URL path
+
+Older setups used `https://<your-deployment>/integrations/tradingview/<your-api-key>`
+as the Webhook URL, with the key in the path. That still works for now,
+but a URL path ends up in request logs, so:
+
+- its responses carry a `"deprecated"` field pointing to the form above;
+- each call logs one line, `{"event": "tradingview_path_key", "key_prefix": "<first 8 characters>"}`,
+  never the full key, so we can see whether anyone still uses it;
+- the access log shows the path as `/integrations/tradingview/[redacted]`.
+
+**It will be removed after 60 days in which the logs show no
+`tradingview_path_key` line.** To switch: change the alert's Webhook URL
+to `https://<your-deployment>/integrations/tradingview` and add
+`"api_key": "<your-api-key>"` to its message. If your key was ever in a
+Webhook URL, you can ask for a replacement key: email hi@forgealone.com
+from the address you used at checkout.

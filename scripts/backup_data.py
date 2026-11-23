@@ -11,8 +11,10 @@ What it does:
     If $BILLING_DB_PATH is set it must be one of them. A missing source is
     an error: this script never creates a database.
   - Opens each source READ-ONLY (sqlite "mode=ro") and copies it with the
-    sqlite3 backup API into /tmp/backup-<UTC date>/ (or --out DIR). The copy
-    is consistent even while the app is writing. Reading takes SQLite's
+    sqlite3 backup API into the output folder (or --out DIR):
+      full:          /tmp/backup-FULL-<UTC date>-delete-by-<UTC date + 30 days>/
+      archive-only:  /tmp/backup-ARCHIVE-<UTC date>/
+    The copy is consistent even while the app is writing. Reading takes SQLite's
     normal shared read lock for a moment at a time (the copy goes in small
     steps), the same as any read the app does itself; nothing under /data
     is written, created or changed.
@@ -30,6 +32,14 @@ and nothing else is written to disk.
 
 The full copy contains customer emails, plaintext API keys, Stripe IDs and
 alert webhook URLs. Keep it off git, chat, cloud drives and email.
+
+30-day rule (Forge Alone privacy policy): a full copy is kept for at most
+FULL_RETENTION_DAYS days, then deleted. A full run therefore puts the
+delete-by date in the folder name, writes DELETE-BY.txt into the folder
+before copying anything (so even a failed run's folder is marked), and
+prints "DELETE BY <date>" at the start and at the end. If DELETE-BY.txt is
+already there (another full run into the same --out), the earlier date is
+kept. Archive-only copies hold no personal data and have no delete-by date.
 """
 
 import argparse
@@ -38,7 +48,7 @@ import os
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 # The sentiment archive: can't be backfilled, holds no personal data.
@@ -49,6 +59,8 @@ SIDECAR_SUFFIXES = ("-journal", "-wal", "-shm")
 PAGES_PER_STEP = 256  # backup API step size; the read lock is released between steps
 STEP_PAUSE_SECONDS = 0.01
 TOP_OF_HOUR_MARGIN_MINUTES = 5  # warn when started this close to the hourly insert at :00
+FULL_RETENTION_DAYS = 30  # privacy policy: full copies (personal data) are deleted within this
+DELETE_BY_FILE = "DELETE-BY.txt"
 
 
 def _is_sqlite(path):
@@ -178,6 +190,58 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def delete_by_date(started_at):
+    """The date a full copy made at started_at (UTC) must be deleted by."""
+    return started_at.astimezone(timezone.utc).date() + timedelta(days=FULL_RETENTION_DAYS)
+
+
+def default_out(started_at, archive_only):
+    """The default output folder: the kind of copy and its dates in the name."""
+    made = started_at.astimezone(timezone.utc).date()
+    if archive_only:
+        return f"/tmp/backup-ARCHIVE-{made:%Y-%m-%d}"
+    return f"/tmp/backup-FULL-{made:%Y-%m-%d}-delete-by-{delete_by_date(started_at):%Y-%m-%d}"
+
+
+def delete_by_banner(delete_by):
+    return (
+        f"DELETE BY {delete_by:%Y-%m-%d} ({FULL_RETENTION_DAYS} days): "
+        "this copy contains personal data."
+    )
+
+
+def _existing_delete_by(path):
+    """The date in an existing DELETE-BY.txt, or None if it can't be read."""
+    try:
+        with open(path) as f:
+            first = f.readline().strip()
+        return date.fromisoformat(first.removeprefix("DELETE BY:").strip())
+    except (OSError, ValueError):
+        return None
+
+
+def write_delete_by(out, started_at):
+    """Write DELETE-BY.txt into a full backup's folder and return the
+    delete-by date it holds. An existing file's earlier date wins, so
+    adding to a folder never pushes its deadline back."""
+    path = os.path.join(out, DELETE_BY_FILE)
+    delete_by = delete_by_date(started_at)
+    existing = _existing_delete_by(path)
+    if existing is not None and existing < delete_by:
+        delete_by = existing
+    with open(path, "w") as f:
+        f.write(
+            f"DELETE BY: {delete_by:%Y-%m-%d}\n"
+            f"Made: {started_at.astimezone(timezone.utc):%Y-%m-%dT%H:%M:%SZ} (UTC)\n"
+            "This folder is a FULL backup: it contains personal data (customer emails, "
+            "API keys, Stripe IDs, alert channels).\n"
+            f"Delete this whole folder, and every copy of it, by the date above "
+            f"({FULL_RETENTION_DAYS} days after it was made).\n"
+        )
+    os.chmod(path, 0o600)
+    return delete_by
+
+
 def near_top_of_hour(now, margin_minutes=TOP_OF_HOUR_MARGIN_MINUTES):
     """True within margin_minutes either side of :00, when the app's hourly
     insert runs. (US Eastern is a whole-hour offset from UTC, so the minute
@@ -194,7 +258,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", default="/data", help="folder to scan for SQLite files (default /data)")
     parser.add_argument("--db", action="append", metavar="PATH", help="back up only this file (repeatable)")
-    parser.add_argument("--out", help="output folder (default /tmp/backup-<UTC date>)")
+    parser.add_argument(
+        "--out",
+        help="output folder (default /tmp/backup-FULL-<UTC date>-delete-by-<date+30>, "
+        "or /tmp/backup-ARCHIVE-<UTC date> with --archive-only)",
+    )
     parser.add_argument("--archive-only", action="store_true", help="copy only the archive tables, no personal data")
     args = parser.parse_args(argv)
 
@@ -206,7 +274,7 @@ def main(argv=None):
             "consistent, but best run between :15 and :45 past the hour."
         )
     sources = find_sources(args.data_dir, args.db, os.environ.get("BILLING_DB_PATH"))
-    out = os.path.abspath(args.out or f"/tmp/backup-{started_at:%Y-%m-%d}")
+    out = os.path.abspath(args.out or default_out(started_at, args.archive_only))
     for s in sources:
         if _inside(out, os.path.dirname(s)):
             sys.exit(f"Output folder {out} is inside the data folder {os.path.dirname(s)}. Nothing copied.")
@@ -215,6 +283,11 @@ def main(argv=None):
 
     print("MODE: ARCHIVE ONLY (archive tables, no personal data)" if args.archive_only
           else "MODE: FULL (copies contain emails, API keys, Stripe IDs, alert channels)")
+    retention_line = (
+        "No personal data: no delete-by date." if args.archive_only
+        else delete_by_banner(delete_by_date(started_at))
+    )
+    print(retention_line)
     print(f"Sources (opened read-only): {', '.join(sources)}")
     print(f"Output: {out}")
 
@@ -241,6 +314,9 @@ def main(argv=None):
 
     os.makedirs(out, mode=0o700, exist_ok=True)
     os.umask(0o077)
+    if not args.archive_only:
+        # Before any copy, so even a failed run's folder carries its deadline.
+        retention_line = delete_by_banner(write_delete_by(out, started_at))
     sums, failed = [], False
     for src, dest in plan:
         started = time.monotonic()
@@ -263,6 +339,7 @@ def main(argv=None):
     os.chmod(sums_path, 0o600)
     print()
     print(f"Wrote {sums_path}")
+    print(retention_line)
     if failed:
         sys.exit("integrity_check FAILED on at least one copy (see above).")
     print("Done. Nothing under the data folder was changed.")
