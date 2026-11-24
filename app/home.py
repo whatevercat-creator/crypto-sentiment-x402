@@ -185,16 +185,25 @@ def render_message_page(title: str, message: str) -> str:
 
 
 def render_api_key_page(
-    *, plan_label: str, api_key: str, calls_per_month: int, base_url: str, save_note: str
+    *, plan_label: str, api_key: str, calls_per_month: int, base_url: str, save_note: str,
+    portal_url: str = "",
 ) -> str:
     curl = escape(f'curl -H "X-API-Key: {api_key}" {base_url}/v1/sentiment/BTC')
+    # Paid keys only (/billing/success): free keys have no subscription.
+    portal = (
+        f'<p>To cancel or update your card later, use the <a href="{escape(portal_url)}">billing portal</a> '
+        "with your checkout email.</p>"
+        if portal_url
+        else ""
+    )
     return _page(
         f"Your {plan_label} API key",
         f'<p class="key"><code>{escape(api_key)}</code></p>'
         f"<p><strong>Save this key now.</strong> {escape(save_note)}</p>"
         f"<p>Your {escape(plan_label)} plan gives you {calls_per_month:,} calls a month on "
         "<code>GET /v1/sentiment/{symbol}</code>. Send the key in the <code>X-API-Key</code> header:</p>"
-        f"<pre><code>{curl}</code></pre>",
+        f"<pre><code>{curl}</code></pre>"
+        f"{portal}",
     )
 
 
@@ -213,6 +222,7 @@ def render_home(
     example_taken_at: str = "",
     coins: list = (),
     coverage: Optional[dict] = None,
+    portal_url: str = "",
 ) -> str:
     network = "Base" if network_mode == "mainnet" else "Base Sepolia (testnet)"
     coverage_html = ""
@@ -237,6 +247,12 @@ def render_home(
         f'<p class="dev">For developers: <code>{escape(pricing["signup"].get(tier, ""))}</code></p>'
         "</div>"
         for tier, p in pricing["subscriptions"].items()
+    )
+
+    portal_html = (
+        f'<p>Already subscribed? <a href="{escape(portal_url)}">Manage or cancel your subscription</a></p>'
+        if portal_url
+        else ""
     )
 
     alert_tiers = " and ".join(
@@ -291,6 +307,7 @@ or a history range with no readings.</p>
 <a href="/billing/pricing">/billing/pricing</a>), all on <code>GET /v1/sentiment/{{symbol}}</code>
 with an <code>X-API-Key</code> header:</p>
 <div class="plans">{plans}</div>
+{portal_html}
 
 <h2>Call it</h2>
 <pre><code>{curl}</code></pre>

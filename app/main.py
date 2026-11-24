@@ -61,6 +61,7 @@ from app.billing import (
     pricing as billing_pricing,
     TIERS,
     X402_PRICE_USD,
+    STRIPE_PORTAL_LOGIN_URL,
     API_KEY_SCHEME,
     API_KEY_SECURITY,
 )
@@ -742,6 +743,7 @@ async def root(request: Request):
             validation=_load_validation(),
             history_price_usd=archive.HISTORY_PRICE_USD,
             coverage=_home_coverage(),
+            portal_url=STRIPE_PORTAL_LOGIN_URL,
         )
         return HTMLResponse(html, headers={"Vary": "Accept"})
     return JSONResponse(_root_index(), headers={"Vary": "Accept"})
