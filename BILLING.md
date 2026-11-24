@@ -5,6 +5,8 @@ keeps working regardless of anything below. This adds a second lane for
 buyers who'd rather pay a predictable monthly price than hold USDC:
 `/v1/sentiment/{symbol}`, gated by an `X-API-Key` header instead of x402.
 
+Customer-facing terms (plan limits, cancellation, refunds) are at `GET /terms`, rendered by `render_terms` in `app/home.py`.
+
 ## Tiers
 
 | Tier | Price | Calls/month | Get it |

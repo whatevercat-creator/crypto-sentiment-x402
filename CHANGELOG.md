@@ -4,6 +4,18 @@ Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
 HTTP API itself isn't versioned here; dated "HTTP API" entries note
 notable API changes.
 
+## HTTP API, unreleased (branch terms-page)
+
+- New browser page `GET /terms` ("Crypto News Sentiment API - Terms", last
+  updated `TERMS_LAST_UPDATED` in `app/home.py`). The plans table and the
+  x402 prices come from `TIERS`, `X402_PRICE_USD`,
+  `archive.HISTORY_PRICE_USD` and `market.MOVERS_PRICE_USD`; it links the
+  Stripe billing portal and the Forge Alone terms and privacy policy. Not in
+  `/openapi.json` (`include_in_schema=False`).
+- Home page footer: "Terms", "Privacy" and "Forge Alone terms" links (also
+  at the bottom of `/terms`). The JSON at `/`, the 402s, pricing and
+  `/openapi.json` are unchanged.
+
 ## HTTP API, unreleased (branch billing-portal-link)
 
 - Stripe customer portal link (`STRIPE_PORTAL_LOGIN_URL` in

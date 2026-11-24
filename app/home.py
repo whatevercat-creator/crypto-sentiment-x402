@@ -19,6 +19,17 @@ RAPIDAPI_URL = "https://rapidapi.com/whatevercat/api/crypto-sentiment-analysis"
 PYPI_URL = "https://pypi.org/project/crypto-sentiment-x402-mcp/"
 # Swagger UI deep link (tag/operationId) to GET /history/{symbol} in /docs.
 HISTORY_DOCS_PATH = "/docs#/Paid%20(x402)/get_history_history__symbol__get"
+FORGE_ALONE_PRIVACY_URL = "https://forgealone.com/privacy"
+FORGE_ALONE_TERMS_URL = "https://forgealone.com/terms"
+SUPPORT_EMAIL = "hi@forgealone.com"
+TERMS_TITLE = "Crypto News Sentiment API - Terms"
+TERMS_LAST_UPDATED = "November 24, 2026"
+# Footer links shared by the home page and /terms.
+LEGAL_LINKS_HTML = (
+    '<a href="/terms">Terms</a>\n'
+    f'<a href="{FORGE_ALONE_PRIVACY_URL}">Privacy</a>\n'
+    f'<a href="{FORGE_ALONE_TERMS_URL}">Forge Alone terms</a>'
+)
 
 
 # Google Search Console ownership check. Public by design (it sits on the
@@ -90,6 +101,9 @@ p code,li code{background:var(--panel);padding:1px 5px;border-radius:4px;font-si
 footer{max-width:760px;margin:40px auto 0;padding:20px 16px 40px;border-top:1px solid var(--border);
 color:var(--muted);font-size:.9rem}
 footer a{margin-right:16px;display:inline-block}
+table{border-collapse:collapse;width:100%;margin:0 0 12px;font-size:.95rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
+th{color:var(--muted);font-weight:600}
 """
 
 
@@ -159,14 +173,18 @@ def _plan_form(tier: str) -> str:
     )
 
 
-def _page(title: str, body: str) -> str:
+def _page(title: str, body: str, *, head_title: Optional[str] = None, footer: str = "") -> str:
+    """head_title replaces the default "<title> - Crypto Sentiment API" tab
+    title; footer is trusted HTML put in a <footer> after <main>."""
+    head_title = f"{title} - Crypto Sentiment API" if head_title is None else head_title
+    footer_html = f"<footer>\n{footer}\n</footer>\n" if footer else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>{escape(title)} - Crypto Sentiment API</title>
+<title>{escape(head_title)}</title>
 <style>{_CSS}</style>
 </head>
 <body>
@@ -175,9 +193,98 @@ def _page(title: str, body: str) -> str:
 {body}
 <p><a href="/">&larr; Back to Crypto Sentiment API</a></p>
 </main>
-</body>
+{footer_html}</body>
 </html>
 """
+
+
+def render_terms(
+    *,
+    tiers: dict,
+    price_usd: str,
+    history_price_usd: str,
+    movers_price_usd: str,
+    portal_url: str,
+) -> str:
+    """GET /terms. Plans, limits and prices come from the arguments (TIERS
+    and the x402 price constants), never typed in, so the page can't drift
+    from what the code charges and enforces."""
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(cfg['label'])}</td>"
+        f"<td>{cfg['limit']:,}</td>"
+        f"<td>{cfg['alert_limit'] or 'None'}</td>"
+        f"<td>{'Yes' if cfg['dataset_access'] else 'No'}</td>"
+        f"<td>${cfg['price_usd']:,}</td>"
+        "</tr>"
+        for cfg in tiers.values()
+    )
+    email = f'<a href="mailto:{SUPPORT_EMAIL}">{SUPPORT_EMAIL}</a>'
+    body = f"""<p class="muted">Last updated: {escape(TERMS_LAST_UPDATED)}</p>
+<p>These terms cover the Crypto News Sentiment API, run by Forge Alone. Using the API or buying a
+plan means you agree to them and to the
+<a href="{FORGE_ALONE_TERMS_URL}">Forge Alone terms of service</a>, which include the no-warranty,
+limit-of-liability and governing-law sections. If the two conflict, these terms apply to the API.
+How personal data is handled is in the <a href="{FORGE_ALONE_PRIVACY_URL}">Forge Alone privacy policy</a>.</p>
+
+<h2>Plans</h2>
+<table>
+<thead><tr><th>Plan</th><th>API-key calls per month</th><th>Alert watches</th><th>Dataset export</th><th>Price per month</th></tr></thead>
+<tbody>{rows}</tbody>
+</table>
+<p>API-key calls are requests to <code>/v1/sentiment/{{symbol}}</code> with an <code>X-API-Key</code> header.
+Pay-per-call (x402) requests don't count against them.</p>
+<p>Monthly call limits reset on the first day of each calendar month (UTC), not on your billing date.</p>
+
+<h2>Pay per call (x402)</h2>
+<ul>
+<li><code>/sentiment/{{symbol}}</code>: {escape(price_usd)} per call</li>
+<li><code>/history/{{symbol}}</code>: {escape(history_price_usd)} per call</li>
+<li><code>/movers</code>: {escape(movers_price_usd)} per call</li>
+</ul>
+<p>Paid in USDC on Base. Payments are final once they settle.</p>
+<p>An unpaid request gets an HTTP 402 with the price. If a paid request is refused, the payment is
+never settled, so you aren't charged. These are refused:</p>
+<ul>
+<li><code>/sentiment/{{symbol}}</code>: a malformed symbol, a coin the API doesn't support, or too
+little recent news for a reading.</li>
+<li><code>/history/{{symbol}}</code>: an invalid symbol or time range, a coin that isn't in the
+hourly archive, a range with no readings, or a range in which every hour had no matching headlines.</li>
+<li><code>/movers</code>: an invalid <code>limit</code>, or no coin with enough news both now and
+about 24 hours ago to rank. If at least one coin can be ranked, <code>/movers</code> charges its
+flat price even when other coins are left out.</li>
+</ul>
+<p>Any other error response isn't charged either.</p>
+
+<h2>Subscriptions</h2>
+<p>Card payments go through Stripe and show on your statement as &ldquo;FORGE ALONE&rdquo;. Cancel
+anytime in the <a href="{escape(portal_url)}">billing portal</a> with your checkout email. Your plan
+keeps working until the end of the period you've paid for, then stops. There are no refunds for
+unused parts of a period. If the API was down or returning errors for more than 24 hours in total
+during a billing period, you can get a full refund for that period: email {email} within 30 days of
+the period ending. A paid key stops working if a payment fails, and works again once the
+subscription is back in good standing. Prices may change; a new subscription price applies from
+your next billing period after you've been told about it.</p>
+
+<h2>Your API key</h2>
+<p>Keep it private. Anyone who has it can use your plan's calls, and those calls count against your
+plan. If you lose it or think it's leaked, email {email} from your checkout address for a
+replacement.</p>
+
+<h2>Not financial advice</h2>
+<p>The API measures news sentiment only. It isn't a price prediction, a trading signal, or financial
+or investment advice. You're responsible for any decision you make with it, including in automated
+trading. Readings can be wrong, late or missing.</p>
+
+<h2>Fair use</h2>
+<p>Don't share keys publicly, resell the raw data feed, try to get around payment, monthly quotas
+or signup limits, or use the API in a way that harms the service.</p>
+
+<h2>RapidAPI</h2>
+<p>If you use the API through RapidAPI, RapidAPI handles your plan and billing under its own terms.</p>
+
+<p>Questions: {email}.</p>"""
+    return _page(TERMS_TITLE, body, head_title=TERMS_TITLE, footer=LEGAL_LINKS_HTML)
 
 
 def render_message_page(title: str, message: str) -> str:
@@ -348,6 +455,7 @@ and three paid (<code>get_sentiment</code>, <code>get_sentiment_history</code>, 
 <a href="/billing/pricing">Pricing (JSON)</a>
 <a href="/validation">Validation</a>
 <a href="{GITHUB_URL}">GitHub</a>
+{LEGAL_LINKS_HTML}
 <p>News sentiment only. Not a price prediction or financial advice.</p>
 </footer>
 </body>
