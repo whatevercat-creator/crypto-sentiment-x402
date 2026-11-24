@@ -9,8 +9,10 @@ For every non-free key it asks Stripe whether there is an active subscription
 to one of this service's plans. A key with none is marked canceled, and active
 watches of keys that aren't active are marked inactive.
 
-Stripe calls are read-only. Output is counts and the first 6 characters of
-keys, never full keys, emails or IDs. A key Stripe couldn't answer for is left
+Stripe calls are read-only. Output is counts and each key's key_prefix (its
+first 8 characters), never full keys, hashes, emails or IDs. A key this marks
+canceled gets ended_at (the purge clock, see scripts/purge_expired_keys.py)
+unless it already has one. A key Stripe couldn't answer for is left
 alone, and a canceled key is never turned back on: it's reported instead.
 """
 
@@ -29,8 +31,9 @@ NO_SUBSCRIPTION = "no_subscription"
 UNKNOWN = "unknown"
 
 
-def _prefix(key: str) -> str:
-    return key[:6]
+def _prefix(prefixes: dict, key_id: str) -> str:
+    """The printable prefix of a stored key: never any part of a hash."""
+    return prefixes.get(key_id) or billing.display_prefix(key_id, None)
 
 
 def _is_active_plan(subscription: dict) -> bool:
@@ -76,15 +79,15 @@ def _active_watches(conn) -> list:
     if not has_watches:
         return []
     return conn.execute(
-        "SELECT w.id, w.api_key, k.status AS key_status FROM watches w "
+        "SELECT w.id, w.api_key, k.status AS key_status, k.key_prefix FROM watches w "
         "LEFT JOIN api_keys k ON k.api_key = w.api_key WHERE w.status = 'active'"
     ).fetchall()
 
 
-def _report(title: str, keys: list) -> None:
+def _report(title: str, keys: list, prefixes: dict) -> None:
     print(f"  {title}: {len(keys)}")
     if keys:
-        print(f"    {' '.join(sorted(_prefix(k) for k in keys))}")
+        print(f"    {' '.join(sorted(_prefix(prefixes, k) for k in keys))}")
 
 
 def main(argv=None) -> int:
@@ -120,10 +123,11 @@ def main(argv=None) -> int:
     conn = _connect(args.apply)
     try:
         rows = conn.execute(
-            "SELECT api_key, status, stripe_customer_id, stripe_subscription_id "
+            "SELECT api_key, key_prefix, status, stripe_customer_id, stripe_subscription_id "
             "FROM api_keys WHERE tier != 'free'"
         ).fetchall()
 
+        prefixes = {r["api_key"]: billing.display_prefix(r["api_key"], r["key_prefix"]) for r in rows}
         keep, to_cancel, already, drifted, unknown = [], [], [], [], []
         for row in rows:
             verdict = _stripe_verdict(row)
@@ -140,22 +144,26 @@ def main(argv=None) -> int:
             w for w in _active_watches(conn)
             if w["key_status"] != "active" or w["api_key"] in canceling
         ]
+        for w in stale_watches:
+            prefixes.setdefault(w["api_key"], billing.display_prefix(w["api_key"], w["key_prefix"]))
 
         verb = "marked" if args.apply else "would be marked"
         print(f"Non-free keys checked: {len(rows)}")
         print(f"  active with an active plan subscription: {len(keep)}")
-        _report(f"no active subscription, {verb} canceled", to_cancel)
+        _report(f"no active subscription, {verb} canceled", to_cancel, prefixes)
         print(f"  already not active, no active subscription: {len(already)}")
-        _report("not active here but active in Stripe (not changed, look at these)", drifted)
-        _report("could not check (not changed)", unknown)
+        _report("not active here but active in Stripe (not changed, look at these)", drifted, prefixes)
+        _report("could not check (not changed)", unknown, prefixes)
         print(f"Active watches {verb} inactive: {len(stale_watches)}")
-        _report("  on keys", list({w["api_key"] for w in stale_watches}))
+        _report("  on keys", list({w["api_key"] for w in stale_watches}), prefixes)
 
         if args.apply:
             with conn:
+                now = billing._now_iso()
                 conn.executemany(
-                    "UPDATE api_keys SET status = 'canceled' WHERE api_key = ? AND status = 'active'",
-                    [(key,) for key in to_cancel],
+                    "UPDATE api_keys SET status = 'canceled', ended_at = COALESCE(ended_at, ?) "
+                    "WHERE api_key = ? AND status = 'active'",
+                    [(now, key) for key in to_cancel],
                 )
                 if stale_watches:  # the watches table may not exist
                     conn.executemany(

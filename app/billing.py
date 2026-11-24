@@ -33,6 +33,7 @@ swap the sqlite3 calls below for a real Postgres connection -- the schema
 is trivial to port.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -183,6 +184,66 @@ def _db() -> sqlite3.Connection:
     return conn
 
 
+# ---------------------------------------------------------------------------
+# Key storage. API keys are stored as "sha256:<hex>" of the key, in the same
+# api_keys.api_key / watches.api_key columns (joins and primary key unchanged).
+# Keys are 24 random bytes, so a plain SHA-256 is enough: no salt or pepper.
+# key_prefix keeps the first KEY_PREFIX_LEN characters (e.g. "csk_AbC1"), which
+# isn't enough to use the key, for support lookups and script output.
+#
+# Transition: rows written before the migration (scripts/hash_existing_keys.py)
+# still hold the plaintext key. Lookups accept either form until the migration
+# has run; the stored value of the matched row (key_id) is what every later
+# query uses, never the key the caller sent.
+# ---------------------------------------------------------------------------
+KEY_HASH_PREFIX = "sha256:"
+KEY_PREFIX_LEN = 8
+
+# Columns added after the first release. Nullable, added at startup when
+# missing (ALTER TABLE ... ADD COLUMN doesn't rewrite existing rows).
+#   key_prefix    first KEY_PREFIX_LEN characters of the key
+#   last_used_at  set at issue; then on any request authenticated by an active
+#                 key (including 429 over quota), at most once a day outside /v1
+#   ended_at      paid: when the subscription ended; free: when switched off.
+#                 Cleared when the key is active again. Purge clock: see
+#                 scripts/purge_expired_keys.py.
+_ADDED_COLUMNS = (("key_prefix", "TEXT"), ("last_used_at", "TEXT"), ("ended_at", "TEXT"))
+
+# Stripe subscription statuses that mean the subscription has ended (as
+# opposed to past_due/unpaid/paused, which can still recover).
+ENDED_SUBSCRIPTION_STATUSES = {"canceled", "incomplete_expired"}
+
+
+def hash_key(key: str) -> str:
+    """How an API key is stored: "sha256:" + hex SHA-256 of the key."""
+    return KEY_HASH_PREFIX + hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def key_prefix(key: str) -> str:
+    """The non-secret start of a key, kept for support and script output."""
+    return key[:KEY_PREFIX_LEN]
+
+
+def is_hashed(stored: Optional[str]) -> bool:
+    return isinstance(stored, str) and stored.startswith(KEY_HASH_PREFIX)
+
+
+def display_prefix(stored: str, prefix: Optional[str]) -> str:
+    """What scripts print for a key: its key_prefix, or for a legacy
+    plaintext row without one, the key's own first characters. Never any
+    part of a hash."""
+    if prefix:
+        return prefix
+    return "(no prefix)" if is_hashed(stored) else key_prefix(stored)
+
+
+def _add_missing_columns(conn: sqlite3.Connection, table: str, columns) -> None:
+    present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    for name, sql_type in columns:
+        if name not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+
+
 def init_db() -> None:
     with _db() as conn:
         conn.execute(
@@ -204,10 +265,60 @@ def init_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_api_keys_customer "
             "ON api_keys (stripe_customer_id)"
         )
+        _add_missing_columns(conn, "api_keys", _ADDED_COLUMNS)
 
 
 def _new_key() -> str:
     return "csk_" + secrets.token_urlsafe(24)
+
+
+# ---------------------------------------------------------------------------
+# The 15-minute reveal cache for /billing/success. A paid key is shown for
+# KEY_DISPLAY_MINUTES after checkout, but only its hash is stored, so the
+# webhook keeps the plaintext here, in memory only (never on disk), keyed by
+# the stored hash. One instance only, like the alert poller: a restart
+# empties it, and the page then says the key was issued and to email for a
+# replacement (the same path as after 15 minutes).
+# ---------------------------------------------------------------------------
+_reveal_cache: dict = {}
+_reveal_lock = threading.Lock()
+
+
+def _reveal_put(key_id: str, plaintext: str) -> None:
+    expires = time.monotonic() + KEY_DISPLAY_MINUTES * 60
+    with _reveal_lock:
+        now = time.monotonic()
+        for k in [k for k, (_, exp) in _reveal_cache.items() if exp <= now]:
+            del _reveal_cache[k]
+        _reveal_cache[key_id] = (plaintext, expires)
+
+
+def _reveal_get(key_id: str) -> Optional[str]:
+    with _reveal_lock:
+        entry = _reveal_cache.get(key_id)
+        if entry is None:
+            return None
+        plaintext, expires = entry
+        if expires <= time.monotonic():
+            del _reveal_cache[key_id]
+            return None
+        return plaintext
+
+
+def _insert_new_key(conn, *, tier: str, email: Optional[str], customer_id=None,
+                    subscription_id=None, now: str) -> tuple:
+    """Insert a new key, stored hashed only. Returns (plaintext, key_id): the
+    plaintext is for the one response that shows it, never stored."""
+    key = _new_key()
+    key_id = hash_key(key)
+    conn.execute(
+        "INSERT INTO api_keys "
+        "(api_key, key_prefix, email, tier, stripe_customer_id, stripe_subscription_id, "
+        "status, period_calls_used, period_start, created_at, last_used_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'active', 0, ?, ?, ?)",
+        (key_id, key_prefix(key), email, tier, customer_id, subscription_id, now, now, now),
+    )
+    return key, key_id
 
 
 def _now_iso() -> str:
@@ -350,15 +461,8 @@ def _check_signup_rate(request: Request) -> None:
 
 
 def _issue_free_key(email: str) -> dict:
-    key = _new_key()
-    now = _now_iso()
     with _db() as conn:
-        conn.execute(
-            "INSERT INTO api_keys "
-            "(api_key, email, tier, status, period_calls_used, period_start, created_at) "
-            "VALUES (?, ?, 'free', 'active', 0, ?, ?)",
-            (key, email, now, now),
-        )
+        key, _ = _insert_new_key(conn, tier="free", email=email, now=_now_iso())
     return {
         "api_key": key,
         "tier": "free",
@@ -537,8 +641,16 @@ def _provisioned_key(session_id: str) -> dict:
         if row:
             if datetime.now(timezone.utc) - _issued_at(row) > timedelta(minutes=KEY_DISPLAY_MINUTES):
                 raise HTTPException(410, _KEY_ALREADY_ISSUED)
+            stored = row["api_key"]
+            # Hashed rows: the plaintext only lives in the in-memory reveal
+            # cache. Gone (a restart within the 15 minutes): same answer as
+            # after 15 minutes. A legacy plaintext row (issued just before the
+            # hashing deploy) is still shown as it was.
+            api_key = _reveal_get(stored) if is_hashed(stored) else stored
+            if api_key is None:
+                raise HTTPException(410, _KEY_ALREADY_ISSUED)
             return {
-                "api_key": row["api_key"],
+                "api_key": api_key,
                 "tier": row["tier"],
                 "note": _KEY_SHOWN_NOTE,
             }
@@ -633,20 +745,18 @@ def _provision_from_checkout(event_session: dict) -> None:
         ).fetchone()
         if existing:  # redelivered event: the key already exists
             conn.execute(
-                "UPDATE api_keys SET tier = ?, status = 'active' WHERE stripe_subscription_id = ?",
+                "UPDATE api_keys SET tier = ?, status = 'active', ended_at = NULL "
+                "WHERE stripe_subscription_id = ?",
                 (tier, subscription_id),
             )
             return
-        conn.execute(
-            "INSERT INTO api_keys "
-            "(api_key, email, tier, stripe_customer_id, stripe_subscription_id, "
-            "status, period_calls_used, period_start, created_at) "
-            "VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?)",
-            (
-                _new_key(), (session.get("customer_details") or {}).get("email"), tier,
-                session.get("customer"), subscription_id, now, now,
-            ),
+        key, key_id = _insert_new_key(
+            conn, tier=tier, email=(session.get("customer_details") or {}).get("email"),
+            customer_id=session.get("customer"), subscription_id=subscription_id, now=now,
         )
+        # In the cache before the row commits, so /billing/success never
+        # finds the row without its key.
+        _reveal_put(key_id, key)
 
 
 def _sync_subscription(subscription_id: Optional[str], deleted: bool) -> None:
@@ -662,30 +772,57 @@ def _sync_subscription(subscription_id: Optional[str], deleted: bool) -> None:
         logger.info("[billing] subscription event ignored: no key on this subscription")
         return
 
-    status, tier = "canceled", None
+    # ended: "set" (the subscription has ended: start the purge clock if it
+    # isn't running), "clear" (active again) or "keep" (off but can still
+    # recover, e.g. past_due: the clock doesn't start).
+    status, tier, ended = "canceled", None, "set"
     if not deleted:
         current = stripe.Subscription.retrieve(subscription_id).to_dict()
-        if current.get("status") in ACTIVE_SUBSCRIPTION_STATUSES:
-            status = "active"
+        stripe_status = current.get("status")
+        if stripe_status in ACTIVE_SUBSCRIPTION_STATUSES:
+            status, ended = "active", "clear"
+        elif stripe_status not in ENDED_SUBSCRIPTION_STATUSES:
+            ended = "keep"
         tier = tier_for_items(current.get("items"))
         if tier is None:
             logger.warning("[billing] subscription moved to a non-plan price: tier left unchanged")
 
+    ended_sql = {
+        "set": "COALESCE(ended_at, ?)",
+        "clear": "NULL",
+        "keep": "ended_at",
+    }[ended]
+    params = (status, tier) + ((_now_iso(),) if ended == "set" else ()) + (subscription_id,)
     with _db() as conn:
         conn.execute(
-            "UPDATE api_keys SET status = ?, tier = COALESCE(?, tier) WHERE stripe_subscription_id = ?",
-            (status, tier, subscription_id),
+            f"UPDATE api_keys SET status = ?, tier = COALESCE(?, tier), ended_at = {ended_sql} "
+            "WHERE stripe_subscription_id = ?",
+            params,
         )
 
 
-def _check_api_key(conn, api_key: str) -> tuple:
-    """Validate an API key, reset its usage counter on a new calendar month
-    and enforce the tier's quota. Raises HTTPException on any failure.
-    Returns (tier, calls_used, limit)."""
-    row = conn.execute(
-        "SELECT * FROM api_keys WHERE api_key = ?", (api_key,)
+# last_used_at outside /v1 is written at most this often per key: a day is
+# plenty for a 12-month clock, and it keeps reads from turning into writes.
+LAST_USED_RESOLUTION = timedelta(days=1)
+
+
+def _find_key_row(conn, api_key: Optional[str]) -> Optional[sqlite3.Row]:
+    """The api_keys row for a key the caller sent: stored hashed, or (until
+    scripts/hash_existing_keys.py has run) as legacy plaintext. A value that
+    is itself a stored hash is never accepted as a key, so a leaked hash
+    can't be used to authenticate."""
+    if not isinstance(api_key, str) or not api_key or is_hashed(api_key):
+        return None
+    return conn.execute(
+        "SELECT * FROM api_keys WHERE api_key IN (?, ?)", (hash_key(api_key), api_key)
     ).fetchone()
 
+
+def _authenticate(conn, api_key: str) -> sqlite3.Row:
+    """The active row for this key, or 401/403/500. A key that gets this far
+    counts as used: last_used_at is refreshed (at most once a day) and
+    committed straight away, so a 429 raised after it still counts."""
+    row = _find_key_row(conn, api_key)
     if not row:
         raise HTTPException(
             401,
@@ -696,6 +833,22 @@ def _check_api_key(conn, api_key: str) -> tuple:
         raise HTTPException(403, "This subscription is not active.")
     if row["tier"] not in TIERS:
         raise HTTPException(500, "Unknown tier on this key -- contact support.")
+    now = datetime.now(timezone.utc)
+    conn.execute(
+        "UPDATE api_keys SET last_used_at = ? "
+        "WHERE api_key = ? AND (last_used_at IS NULL OR last_used_at < ?)",
+        (now.isoformat(), row["api_key"], (now - LAST_USED_RESOLUTION).isoformat()),
+    )
+    conn.commit()
+    return row
+
+
+def _check_api_key(conn, api_key: str) -> tuple:
+    """Validate an API key, reset its usage counter on a new calendar month
+    and enforce the tier's quota. Raises HTTPException on any failure.
+    Returns (tier, calls_used, limit, key_id)."""
+    row = _authenticate(conn, api_key)
+    key_id = row["api_key"]
 
     period_start = datetime.fromisoformat(row["period_start"])
     now = datetime.now(timezone.utc)
@@ -706,7 +859,7 @@ def _check_api_key(conn, api_key: str) -> tuple:
         conn.execute(
             "UPDATE api_keys SET period_calls_used = 0, period_start = ? "
             "WHERE api_key = ?",
-            (_now_iso(), api_key),
+            (_now_iso(), key_id),
         )
 
     limit = TIERS[row["tier"]]["limit"]
@@ -717,7 +870,7 @@ def _check_api_key(conn, api_key: str) -> tuple:
             f"Upgrade with POST /billing/checkout/{{tier}}, or it resets next "
             f"calendar month.",
         )
-    return row["tier"], calls_used, limit
+    return row["tier"], calls_used, limit, key_id
 
 
 def verify_api_key(api_key: str) -> None:
@@ -734,11 +887,11 @@ def verify_and_charge_api_key(api_key: str) -> dict:
     Raises HTTPException on any failure. Returns usage info on success.
     """
     with _db() as conn:
-        tier, calls_used, limit = _check_api_key(conn, api_key)
+        tier, calls_used, limit, key_id = _check_api_key(conn, api_key)
         conn.execute(
-            "UPDATE api_keys SET period_calls_used = period_calls_used + 1 "
+            "UPDATE api_keys SET period_calls_used = period_calls_used + 1, last_used_at = ? "
             "WHERE api_key = ?",
-            (api_key,),
+            (_now_iso(), key_id),
         )
         return {"tier": tier, "calls_used": calls_used + 1, "limit": limit}
 
@@ -746,22 +899,12 @@ def verify_and_charge_api_key(api_key: str) -> dict:
 def get_key_info(api_key: str) -> dict:
     """
     Look up an API key WITHOUT charging a sentiment-call against its quota.
-    Used by /alerts/* endpoints, which manage watches rather than fetch data.
-    Raises HTTPException if the key is missing/inactive.
+    Used by /alerts/*, /dataset and /integrations, which don't fetch a
+    sentiment reading. Raises HTTPException if the key is missing/inactive.
+
+    key_id is the key as stored (its hash, or a legacy plaintext row's key):
+    use it, never the key the caller sent, in every later query (watches).
     """
     with _db() as conn:
-        row = conn.execute(
-            "SELECT * FROM api_keys WHERE api_key = ?", (api_key,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(
-                401,
-                "Invalid API key. Get one at POST /billing/signup-free "
-                "or POST /billing/checkout/{tier}.",
-            )
-        if row["status"] != "active":
-            raise HTTPException(403, "This subscription is not active.")
-        if row["tier"] not in TIERS:
-            raise HTTPException(500, "Unknown tier on this key -- contact support.")
-
-        return {"tier": row["tier"], "email": row["email"]}
+        row = _authenticate(conn, api_key)
+        return {"tier": row["tier"], "email": row["email"], "key_id": row["api_key"]}

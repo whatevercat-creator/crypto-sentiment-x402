@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from tests.test_home import client  # noqa: F401  (shared fixture: sets env, inits DBs)
 from app import reissue_key
 from app.alerts import init_alerts_db
-from app.billing import _db, get_key_info
+from app.billing import _db, get_key_info, hash_key
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -33,8 +33,11 @@ def _add_key(email, tier="pro", status="active", customer=None, used=7):
 
 
 def _row(key):
+    """The row for a key, stored hashed or (legacy, as _add_key writes it) plaintext."""
     with _db() as conn:
-        return conn.execute("SELECT * FROM api_keys WHERE api_key = ?", (key,)).fetchone()
+        return conn.execute(
+            "SELECT * FROM api_keys WHERE api_key IN (?, ?)", (hash_key(key), key)
+        ).fetchone()
 
 
 @pytest.fixture
@@ -67,7 +70,12 @@ def test_reissue_by_email_rotates_in_place(email, capsys):
     assert row["period_calls_used"] == 7
     assert row["created_at"] == "2026-10-01T00:00:00+00:00"  # success link stays expired
     with _db() as conn:
-        assert conn.execute("SELECT api_key FROM watches WHERE api_key IN (?, ?)", (old, new)).fetchall()[0][0] == new
+        # The new key is stored hashed, here and on the watch it took over.
+        assert row["api_key"] == hash_key(new) and row["key_prefix"] == new[:8]
+        watch_keys = conn.execute(
+            "SELECT api_key FROM watches WHERE api_key IN (?, ?, ?)", (old, hash_key(old), hash_key(new))
+        ).fetchall()
+        assert [w[0] for w in watch_keys] == [hash_key(new)]
 
 
 def test_reissue_by_customer_with_yes(email, capsys):

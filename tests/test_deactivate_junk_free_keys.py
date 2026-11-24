@@ -115,3 +115,27 @@ def test_missing_db_is_not_created(tmp_path):
     with pytest.raises(SystemExit):
         junk.main(["--db", str(path)])
     assert not path.exists()
+
+
+def test_apply_stamps_ended_at_on_deactivated_keys_only(db):
+    """ended_at is the "switched off" time scripts/purge_expired_keys.py counts from."""
+    junk.main(["--db", str(db), "--apply"])
+    matched = _expected_matches()
+    with sqlite3.connect(db) as conn:
+        rows = dict(conn.execute("SELECT api_key, ended_at FROM api_keys").fetchall())
+    for key, ended_at in rows.items():
+        assert (ended_at is not None) is (key in matched), key
+
+
+def test_hashed_keys_print_their_key_prefix_never_the_hash(db, capsys):
+    key = "csk_hashedJunkKey_0123456789"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO api_keys (api_key, key_prefix, email, tier, status, period_calls_used, period_start, "
+            "created_at) VALUES (?, ?, 'test@mailinator.com', 'free', 'active', 0, 'x', 'x')",
+            (billing.hash_key(key), key[:8]),
+        )
+    junk.main(["--db", str(db)])
+    out = capsys.readouterr().out
+    assert f"{key[:8]:<12} disposable_domain" in out
+    assert "sha256" not in out and key not in out

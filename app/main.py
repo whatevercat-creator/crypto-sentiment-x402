@@ -820,8 +820,8 @@ async def google_site_verification_file():
 
 # /sentiment/ and /history/ stay crawlable on purpose: x402 directories and
 # agent crawlers may honor robots.txt, and those are the routes to find.
-# Disallowed: key-gated and per-customer paths (/integrations/ URLs carry
-# an API key).
+# Disallowed: key-gated and per-customer paths (the deprecated
+# /integrations/tradingview/<key> form carries an API key in its URL).
 ROBOTS_DISALLOW = ("/v1/", "/billing/", "/alerts/", "/rapidapi/", "/integrations/")
 SITEMAP_PATHS = ("/", "/archive", "/docs", "/llms.txt", "/validation", "/transparency", "/market-sentiment")
 

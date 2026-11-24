@@ -4,6 +4,46 @@ Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
 HTTP API itself isn't versioned here; dated "HTTP API" entries note
 notable API changes.
 
+## HTTP API, unreleased (branch key-hashing-retention)
+
+- API keys are stored hashed (`sha256:` + hex, in the same `api_key`
+  columns) with a non-secret `key_prefix` (first 8 characters). Keys issued
+  before this keep working: lookups accept a hashed or a legacy plaintext
+  row until `scripts/hash_existing_keys.py --apply` has been run. A stored
+  hash is never accepted as a key.
+- Every watches query uses the key as stored, so alerts, /alerts/history
+  and both TradingView routes keep finding their watches after migration.
+- /billing/success shows a paid key from an in-memory cache for its 15
+  minutes (the plaintext is never written to disk). After a restart within
+  those 15 minutes it says the key was issued and to email for a
+  replacement, as after 15 minutes.
+- New `api_keys` columns, added at startup: `key_prefix`, `last_used_at`
+  (set at issue, then on use, including a 429, at most once a day outside
+  /v1) and `ended_at` (subscription ended, or free key switched off;
+  cleared if the key is active again; not set for past_due).
+- New scripts, dry run by default: `scripts/hash_existing_keys.py` (one-off
+  migration) and `scripts/purge_expired_keys.py` (run by hand monthly:
+  free keys 12 months after last use or switch-off, whichever first; paid
+  keys 12 months after the subscription ended; with their watches and
+  alert events).
+- `reissue_key`, `reconcile_keys` and `deactivate_junk_free_keys` print
+  `key_prefix` (8 characters) and never a hash; the last two stamp
+  `ended_at` on keys they switch off.
+- No change to the 402s or the MCP package.
+
+## HTTP API, 2026-11-23 (deploy of c1e8d45)
+
+- TradingView: new `POST /integrations/tradingview` takes the API key in
+  the JSON alert message (`"api_key"`), which is removed before the alert
+  is relayed. The key-in-path form still works but is deprecated: a
+  `"deprecated"` response field, one `tradingview_path_key` log line per
+  call (first 8 characters only), and the key redacted in the access log.
+  It will be removed after 60 days without use.
+- `scripts/backup_data.py`: full backups go to
+  `backup-FULL-<date>-delete-by-<date+30>` with a `DELETE-BY.txt` and a
+  delete-by banner; archive-only backups to `backup-ARCHIVE-<date>`.
+- No change to the 402s or the MCP package.
+
 ## 0.2.0
 
 **Migration: tools renamed, no aliases.** Update any client config or

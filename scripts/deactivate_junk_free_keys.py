@@ -6,11 +6,13 @@ emails. Run it from the Render Shell, where the billing database is:
     python scripts/deactivate_junk_free_keys.py --apply    # only after reading the dry run
 
 DRY RUN is the default: it opens the database read-only and prints the rule
-list, counts per rule, and for each matched key its first 8 characters, the
-email's domain and the rule it matched. Never full keys or full emails.
+list, counts per rule, and for each matched key its key_prefix (first 8
+characters), the email's domain and the rule it matched. Never full keys,
+key hashes or full emails.
 
 --apply sets status = 'deactivated' on the matched keys (deactivate, never
-delete). Only rows with tier = 'free' AND status = 'active' are ever read or
+delete here) and stamps ended_at, the "switched off" time from which
+scripts/purge_expired_keys.py counts 12 months. Only rows with tier = 'free' AND status = 'active' are ever read or
 changed: paid tiers are never touched. A deactivated key gets HTTP 403
 "This subscription is not active." and can't sign up again under the same key.
 
@@ -23,6 +25,7 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from collections import Counter
 
 # (rule name, plain-language description). Printed at the top of every run.
@@ -60,6 +63,15 @@ TEST_LOCAL_PART = re.compile(
 
 PREFIX_LEN = 8
 DEACTIVATED = "deactivated"
+HASH_PREFIX = "sha256:"  # stored keys are hashed (app/billing.py hash_key)
+
+
+def shown_prefix(api_key, key_prefix):
+    """The printable start of a stored key: key_prefix, or a legacy
+    plaintext key's own first characters. Never any part of a hash."""
+    if key_prefix:
+        return key_prefix
+    return "(no prefix)" if api_key.startswith(HASH_PREFIX) else api_key[:PREFIX_LEN]
 
 
 def split_email(email):
@@ -88,16 +100,17 @@ def match_rule(email):
 
 
 def find_junk(conn):
-    """[(api_key, domain, rule)] for active free-tier keys whose email matches a rule."""
+    """[(api_key, prefix, domain, rule)] for active free-tier keys whose email
+    matches a rule. api_key is the stored value (a hash, or legacy plaintext)."""
     rows = conn.execute(
-        "SELECT api_key, email FROM api_keys WHERE tier = 'free' AND status = 'active' "
+        "SELECT api_key, key_prefix, email FROM api_keys WHERE tier = 'free' AND status = 'active' "
         "ORDER BY created_at, api_key"
     ).fetchall()
     out = []
-    for api_key, email in rows:
+    for api_key, key_prefix, email in rows:
         rule = match_rule(email)
         if rule:
-            out.append((api_key, split_email(email)[1] or "(none)", rule))
+            out.append((api_key, shown_prefix(api_key, key_prefix), split_email(email)[1] or "(none)", rule))
     return out, len(rows)
 
 
@@ -124,7 +137,7 @@ def main(argv=None):
     conn = _connect(args.db, args.apply)
     try:
         junk, active_free = find_junk(conn)
-        counts = Counter(rule for _, _, rule in junk)
+        counts = Counter(rule for _, _, _, rule in junk)
         print(f"Active free keys: {active_free}")
         print(f"Matched: {len(junk)}")
         for name, _ in RULES:
@@ -132,21 +145,22 @@ def main(argv=None):
         print()
         if junk:
             print(f"{'key prefix':<12} {'rule':<18} email domain")
-            for api_key, domain, rule in junk:
-                print(f"{api_key[:PREFIX_LEN]:<12} {rule:<18} {domain}")
+            for _, prefix, domain, rule in junk:
+                print(f"{prefix:<12} {rule:<18} {domain}")
             print()
 
         if not args.apply:
             print("DRY RUN: nothing was changed. Re-run with --apply to deactivate these keys.")
             return 0
 
+        now = datetime.now(timezone.utc).isoformat()
         with conn:
             changed = 0
-            for api_key, _, _ in junk:
+            for api_key, _, _, _ in junk:
                 changed += conn.execute(
-                    "UPDATE api_keys SET status = ? "
+                    "UPDATE api_keys SET status = ?, ended_at = COALESCE(ended_at, ?) "
                     "WHERE api_key = ? AND tier = 'free' AND status = 'active'",
-                    (DEACTIVATED, api_key),
+                    (DEACTIVATED, now, api_key),
                 ).rowcount
         print(f"APPLIED: deactivated {changed} free key(s). Nothing was deleted.")
         return 0

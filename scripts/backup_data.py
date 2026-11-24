@@ -30,8 +30,11 @@ tables (ARCHIVE_TABLES below, with their indexes), read in one consistent
 transaction. No API keys, emails, Stripe IDs or alert channels go into it,
 and nothing else is written to disk.
 
-The full copy contains customer emails, plaintext API keys, Stripe IDs and
-alert webhook URLs. Keep it off git, chat, cloud drives and email.
+The full copy contains customer emails, API keys, Stripe IDs and alert
+webhook URLs. Keys are stored hashed once scripts/hash_existing_keys.py
+--apply has run; a full copy made before that holds them in plaintext, so
+delete those copies after the migration. Keep every full copy off git, chat,
+cloud drives and email.
 
 30-day rule (Forge Alone privacy policy): a full copy is kept for at most
 FULL_RETENTION_DAYS days, then deleted. A full run therefore puts the

@@ -225,11 +225,11 @@ async def tradingview_webhook(request: Request):
             "Missing API key. Set the TradingView alert message to JSON with your key, "
             f"like {_EXAMPLE_MESSAGE}.",
         )
-    get_key_info(api_key.strip())  # raises 401/403 for invalid/inactive keys
+    key_id = get_key_info(api_key.strip())["key_id"]  # raises 401/403 for invalid/inactive keys
     if not ticker:
         # No plain-text fallback here: the message is JSON (it carries the key).
         raise _symbol_missing()
-    return await _relay(api_key.strip(), ticker, _without_key(parsed))
+    return await _relay(key_id, ticker, _without_key(parsed))
 
 
 @router.post("/tradingview/{api_key}", include_in_schema=False)
@@ -237,7 +237,7 @@ async def tradingview_webhook_path_key(api_key: str, request: Request):
     """Deprecated: the key in the URL path. Kept working until the logs show
     no tradingview_path_key line for 60 days (see the module docstring)."""
     logger.info(json.dumps({"event": "tradingview_path_key", "key_prefix": api_key[:KEY_PREFIX_LEN]}))
-    get_key_info(api_key)  # raises 401/403 for invalid/inactive keys
+    key_id = get_key_info(api_key)["key_id"]  # raises 401/403 for invalid/inactive keys
 
     raw_body = (await request.body()).decode("utf-8", errors="replace").strip()
     if not raw_body:
@@ -258,6 +258,6 @@ async def tradingview_webhook_path_key(api_key: str, request: Request):
         else:
             raise _symbol_missing()
 
-    result = await _relay(api_key, ticker, alert)
+    result = await _relay(key_id, ticker, alert)
     result["deprecated"] = DEPRECATED_NOTE
     return result
