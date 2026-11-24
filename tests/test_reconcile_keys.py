@@ -146,12 +146,15 @@ def test_dry_run_and_apply_together_refused(world):
         reconcile_keys.main(["--dry-run", "--apply"])
 
 
-def test_output_only_has_six_char_prefixes(world, capsys):
+def test_output_only_has_eight_char_key_prefixes(world, capsys):
+    """Each key shows as its key_prefix (8 characters), as the other key
+    scripts print it: never a full key, and never any part of a hash."""
     _seed()
     reconcile_keys.main([])
     out = capsys.readouterr().out
     prefixes = set(re.findall(r"csk_\S*", out))
-    assert prefixes and all(len(p) == 6 for p in prefixes)
+    assert prefixes and all(len(p) == 8 for p in prefixes)
+    assert "sha256" not in out
     for secret in ("FULLKEY", "secret-mail", "cus_", "sub_", "webhook.site", "secret-path"):
         assert secret not in out
     assert "csk_cc" in out
@@ -248,3 +251,18 @@ def test_database_without_watches_table(world, capsys):
     _key("csk_ccccDEADFULLKEY", sub="sub_dead")
     assert reconcile_keys.main(["--apply"]) == 0
     assert _statuses()["csk_ccccDEADFULLKEY"] == "canceled"
+
+
+def test_apply_stamps_ended_at_only_on_keys_it_cancels(world):
+    """The purge clock starts for keys marked canceled here; an earlier
+    ended_at is never moved."""
+    _seed()
+    with _db() as conn:
+        conn.execute("UPDATE api_keys SET ended_at = '2026-01-01T00:00:00+00:00' WHERE api_key = 'csk_ddddGONEFULLKEY'")
+    reconcile_keys.main(["--apply"])
+    with _db() as conn:
+        ended = dict(conn.execute("SELECT api_key, ended_at FROM api_keys").fetchall())
+    statuses = _statuses()
+    assert ended["csk_aaaaGOODFULLKEY"] is None and statuses["csk_aaaaGOODFULLKEY"] == "active"
+    assert ended["csk_ccccDEADFULLKEY"] is not None
+    assert ended["csk_ddddGONEFULLKEY"] == "2026-01-01T00:00:00+00:00"

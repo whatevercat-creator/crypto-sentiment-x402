@@ -133,6 +133,7 @@ class WatchCreate(BaseModel):
 @router.post("/watch", openapi_extra=API_KEY_SECURITY)
 def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Key")):
     key_info = get_key_info(x_api_key)
+    key_id = key_info["key_id"]  # the key as stored: never query watches by the raw header
     tier = key_info["tier"]
     alert_limit = TIERS[tier]["alert_limit"]
 
@@ -163,7 +164,7 @@ def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Ke
     with _db() as conn:
         count = conn.execute(
             "SELECT COUNT(*) AS n FROM watches WHERE api_key = ? AND status = 'active'",
-            (x_api_key,),
+            (key_id,),
         ).fetchone()["n"]
         if count >= alert_limit:
             raise HTTPException(
@@ -176,7 +177,7 @@ def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Ke
             "INSERT INTO watches "
             "(api_key, symbol, channel_type, channel_target, threshold, status, created_at) "
             "VALUES (?, ?, ?, ?, ?, 'active', ?)",
-            (x_api_key, symbol, body.channel_type, body.channel_target, body.threshold, _now_iso()),
+            (key_id, symbol, body.channel_type, body.channel_target, body.threshold, _now_iso()),
         )
         watch_id = cur.lastrowid
 
@@ -193,22 +194,22 @@ def create_watch(body: WatchCreate, x_api_key: str = Header(..., alias="X-API-Ke
 
 @router.get("/watch", openapi_extra=API_KEY_SECURITY)
 def list_watches(x_api_key: str = Header(..., alias="X-API-Key")):
-    get_key_info(x_api_key)
+    key_id = get_key_info(x_api_key)["key_id"]
     with _db() as conn:
         rows = conn.execute(
             "SELECT id, symbol, channel_type, threshold, last_label, last_compound, status, created_at "
             "FROM watches WHERE api_key = ? ORDER BY created_at DESC",
-            (x_api_key,),
+            (key_id,),
         ).fetchall()
     return {"watches": [dict(r) for r in rows]}
 
 
 @router.delete("/watch/{watch_id}", openapi_extra=API_KEY_SECURITY)
 def delete_watch(watch_id: int, x_api_key: str = Header(..., alias="X-API-Key")):
-    get_key_info(x_api_key)
+    key_id = get_key_info(x_api_key)["key_id"]
     with _db() as conn:
         row = conn.execute(
-            "SELECT id FROM watches WHERE id = ? AND api_key = ?", (watch_id, x_api_key)
+            "SELECT id FROM watches WHERE id = ? AND api_key = ?", (watch_id, key_id)
         ).fetchone()
         if not row:
             raise HTTPException(404, "No watch with that id for this API key.")
@@ -218,7 +219,7 @@ def delete_watch(watch_id: int, x_api_key: str = Header(..., alias="X-API-Key"))
 
 @router.get("/history", openapi_extra=API_KEY_SECURITY)
 def alert_history(x_api_key: str = Header(..., alias="X-API-Key"), limit: int = 20):
-    get_key_info(x_api_key)
+    key_id = get_key_info(x_api_key)["key_id"]
     limit = max(1, min(limit, 100))
     with _db() as conn:
         rows = conn.execute(
@@ -229,7 +230,7 @@ def alert_history(x_api_key: str = Header(..., alias="X-API-Key"), limit: int = 
             ORDER BY ae.sent_at DESC
             LIMIT ?
             """,
-            (x_api_key, limit),
+            (key_id, limit),
         ).fetchall()
     return {"events": [{**dict(r), "error": _public_error(r["error"])} for r in rows]}
 

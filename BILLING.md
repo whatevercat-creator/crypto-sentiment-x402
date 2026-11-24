@@ -114,12 +114,78 @@ they used at checkout. To replace their key:
    python -m app.reissue_key --customer cus_ABC123
    ```
 
-   It lists the matching keys (masked) and asks before changing anything. If
-   several active keys match, rerun with `--key-prefix csk_XXXX` to pick one.
-3. Reply to the subscriber with the new key the script prints.
+   It lists the matching keys by their prefix (first 8 characters) and asks
+   before changing anything. If several active keys match, rerun with
+   `--key-prefix csk_XXXX` (the prefix it printed) to pick one.
+3. Reply to the subscriber with the new key the script prints. It's the
+   only time the new key is shown: only its hash is stored.
 
 The key is replaced in place: the old key stops working immediately, and the
-plan, Stripe subscription, this month's usage and alert watches carry over.
+plan, Stripe subscription, this month's usage, last-used time and alert
+watches carry over.
+
+## How keys are stored
+
+Keys are stored hashed: `api_keys.api_key` (and `watches.api_key`) hold
+`sha256:` + the hex SHA-256 of the key, never the key itself. Keys are 24
+random bytes, so a plain hash is enough. `key_prefix` keeps the first 8
+characters (e.g. `csk_AbC1`), which isn't enough to use the key, for support
+and script output. A free key is shown once in the signup response; a paid
+key on `/billing/success` for 15 minutes, from an in-memory cache (never
+written to disk, emptied by a restart: the page then says the key was issued
+and to email for a replacement).
+
+Three columns are added at startup when missing:
+
+- `key_prefix`: the first 8 characters.
+- `last_used_at`: set when the key is issued, then on any request made with
+  the active key (including one refused with 429 over quota), at most once a
+  day outside `/v1/sentiment`.
+- `ended_at`: for a paid key, when its subscription ended (deleted, or
+  Stripe status `canceled` / `incomplete_expired`; not `past_due`, which can
+  recover); for a free key, when it was switched off. Cleared if the key
+  becomes active again.
+
+### One-off: hash the keys issued before this release
+
+Keys issued before the hashing release are still stored in plaintext. They
+keep working (lookups accept either form) until this has run. In the Render
+Shell, **after** the release is deployed (its startup adds the columns):
+
+```bash
+python scripts/backup_data.py                     # full backup first: the restore point
+python scripts/hash_existing_keys.py              # dry run: counts and key prefixes only
+python scripts/hash_existing_keys.py --apply      # only after reading the dry run
+python scripts/hash_existing_keys.py              # again: should say plaintext: 0
+```
+
+`--apply` hashes every plaintext key and watch in one transaction, sets
+`last_used_at` (and, on keys that aren't active, `ended_at`) to the
+migration time where empty, then VACUUMs so no old plaintext stays in the
+file. Existing keys' 12-month clock therefore starts at the migration date.
+Afterwards take a fresh full backup and delete the older ones (they hold
+plaintext keys). **Once applied, never deploy code older than the hashing
+release:** it can't read hashed keys. Fix forward instead.
+
+## Deleting expired keys (monthly, by hand)
+
+The privacy policy keeps key data while it's in use and deletes it 12
+months later: free keys 12 months after last use or after being switched
+off, whichever comes first; paid keys 12 months after the subscription
+ended. In the Render Shell:
+
+```bash
+python scripts/backup_data.py                     # full backup first
+python scripts/purge_expired_keys.py              # dry run: counts and key prefixes only
+python scripts/purge_expired_keys.py --apply      # only after reading the dry run
+```
+
+It deletes the matching keys with their watches and alert events, in one
+transaction, then VACUUMs. It reports, and never deletes, paid keys that are
+off but whose subscription hasn't ended (e.g. past_due), and watches whose
+key is gone. It stops without changing anything until `hash_existing_keys.py
+--apply` has run. Stripe's own records, the mailbox and backups (30-day
+rule, see `scripts/backup_data.py`) aren't touched.
 
 ## Reconciling keys with Stripe
 
@@ -132,9 +198,10 @@ python -m app.maintenance.reconcile_keys --apply
 ```
 
 For every non-free key it asks Stripe (read-only) for an active subscription
-to one of this service's plans. Keys without one are marked canceled, and
-watches of keys that aren't active are marked inactive. It prints only counts
-and the first 6 characters of keys. A key it couldn't check is left alone, and
+to one of this service's plans. Keys without one are marked canceled (and get
+`ended_at`, unless they already have one), and watches of keys that aren't
+active are marked inactive. It prints only counts and each key's prefix
+(first 8 characters). A key it couldn't check is left alone, and
 it never turns a canceled key back on: those are listed for you to look at.
 
 ## Notes / what's deliberately left out of this first pass

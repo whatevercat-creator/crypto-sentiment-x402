@@ -4,6 +4,7 @@ billing endpoints, which redirect browsers to Stripe Checkout or show the
 free key on a page, while API clients keep getting the same JSON.
 """
 
+import re
 import types
 from datetime import datetime, timedelta, timezone
 
@@ -11,7 +12,7 @@ import pytest
 
 from tests.test_home import BROWSER_ACCEPT, client  # noqa: F401  (shared fixture)
 from app import billing
-from app.billing import _db, pricing
+from app.billing import _db, hash_key, pricing
 
 CHECKOUT_URL = "https://checkout.stripe.com/c/pay/cs_test_123"
 # What a browser sends when submitting a <form method="post"> with no fields:
@@ -94,7 +95,10 @@ def test_free_form_shows_key_page(client):  # noqa: F811
             ("form@mail.test-shop.dev",),
         ).fetchone()
     assert row["tier"] == "free"
-    assert f"<code>{row['api_key']}</code>" in r.text
+    # The page shows the key once; the database only holds its hash.
+    shown = re.search(r"<code>(csk_[^<]+)</code>", r.text).group(1)
+    assert row["api_key"] == hash_key(shown)
+    assert shown not in row["api_key"]
     assert "Save this key now." in r.text
     assert "<script" not in r.text.lower()
 
