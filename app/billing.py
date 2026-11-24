@@ -63,6 +63,10 @@ DB_PATH = os.environ.get("BILLING_DB_PATH", "billing.db")
 # x402 pay-per-call price, e.g. "$0.01". app/main.py charges this; the
 # pricing endpoint and home page quote it.
 X402_PRICE_USD = os.environ.get("X402_PRICE_USD", "$0.01")
+# Stripe customer portal login (public, not a secret). Subscribers enter
+# their checkout email and get a one-time code; there they can cancel (at
+# period end), update their card and see invoices. See BILLING.md.
+STRIPE_PORTAL_LOGIN_URL = "https://billing.stripe.com/p/login/dRm28qcbjeNJaWn86f1Nu00"
 
 TIERS = {
     "free": {
@@ -606,6 +610,7 @@ def checkout_success(session_id: str, request: Request):
             base_url=APP_BASE_URL,
             save_note=f"It's shown for {KEY_DISPLAY_MINUTES} minutes after checkout. "
             "Keep it secret: anyone with it can use your plan's calls.",
+            portal_url=STRIPE_PORTAL_LOGIN_URL,
         ),
         headers={**_SUCCESS_HEADERS, "Vary": "Accept"},
     )

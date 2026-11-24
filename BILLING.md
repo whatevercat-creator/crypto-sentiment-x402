@@ -204,6 +204,37 @@ active are marked inactive. It prints only counts and each key's prefix
 (first 8 characters). A key it couldn't check is left alone, and
 it never turns a canceled key back on: those are listed for you to look at.
 
+## Customer billing portal
+
+Subscribers manage their own subscription in Stripe's customer portal:
+<https://billing.stripe.com/p/login/dRm28qcbjeNJaWn86f1Nu00>
+(`STRIPE_PORTAL_LOGIN_URL` in `app/billing.py`; public, not a secret). The
+home page links it under the plans ("Already subscribed?") and so does the
+`/billing/success` page, below the key.
+
+They enter their checkout email and Stripe emails them a one-time code.
+There they can:
+
+- **cancel**: takes effect at the end of the billing period, no partial
+  refund;
+- **update their card**;
+- **see their invoices**.
+
+They can't switch plans or change their email there.
+
+Cancelling doesn't switch the key off straight away. Stripe first sends
+`customer.subscription.updated` (still `active`, set to cancel at period
+end), and `_sync_subscription` leaves the key working. When the period ends
+Stripe sends `customer.subscription.deleted`, and `stripe_webhook` calls
+`_sync_subscription(..., deleted=True)`, which sets the key's status to
+`canceled` and stamps `ended_at` (the purge clock). Both are in
+`app/billing.py`.
+
+Email changes are left off because a lost key is reissued by the checkout
+email: `python -m app.reissue_key --email` looks the key up by the email
+stored at checkout (and "How to reissue a key" above checks the request came
+from that address).
+
 ## Notes / what's deliberately left out of this first pass
 
 - **No email delivery.** A free key is shown once, in the
@@ -213,9 +244,6 @@ it never turns a canceled key back on: those are listed for you to look at.
   Add an email step (Stripe Checkout can collect the email, or send via any
   mail API) for self-service recovery — right now, a lost paid key is
   reissued by hand.
-- **No customer self-service portal** (cancel/upgrade/see usage). Stripe's
-  [Billing Portal](https://docs.stripe.com/customer-management) is a fast
-  way to add one — a few lines against `stripe.billingPortal.Session`.
 - **sqlite, not Postgres.** Fine for one instance at this scale; swap it out
   if you outgrow it or scale to multiple instances (the schema in
   `app/billing.py` is a few lines, easy to port).

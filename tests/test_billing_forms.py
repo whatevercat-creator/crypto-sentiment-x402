@@ -226,3 +226,45 @@ def test_success_problems_show_a_page(stripe_session, session_id, status, title)
     j = client.get("/billing/success", params={"session_id": session_id})
     assert j.status_code == status and "detail" in j.json()
     _assert_success_headers(j)
+
+
+PORTAL_LINK = f'<a href="{billing.STRIPE_PORTAL_LOGIN_URL}">'
+
+
+def test_portal_url_is_the_stripe_login_link():
+    assert billing.STRIPE_PORTAL_LOGIN_URL == "https://billing.stripe.com/p/login/dRm28qcbjeNJaWn86f1Nu00"
+
+
+def test_home_links_the_billing_portal_after_the_plans(client):  # noqa: F811
+    html = client.get("/", headers={"Accept": BROWSER_ACCEPT}).text
+    line = f"<p>Already subscribed? {PORTAL_LINK}Manage or cancel your subscription</a></p>"
+    assert html.count(line) == 1
+    assert html.index('<div class="plans">') < html.index(line) < html.index("<h2>Call it</h2>")
+
+
+def test_home_json_has_no_portal_link(client):  # noqa: F811
+    r = client.get("/")
+    assert r.headers["content-type"].startswith("application/json")
+    assert "billing.stripe.com" not in r.text
+
+
+def test_success_page_links_the_billing_portal_below_the_key(stripe_session):
+    client, key = stripe_session
+    html = client.get("/billing/success", params={"session_id": "cs_paid"},
+                      headers={"Accept": BROWSER_ACCEPT}).text
+    line = (f"<p>To cancel or update your card later, use the {PORTAL_LINK}billing portal</a> "
+            "with your checkout email.</p>")
+    assert html.count(line) == 1
+    assert html.index(f"<code>{key}</code>") < html.index(line)
+
+
+def test_success_json_has_no_portal_link(stripe_session):
+    client, _ = stripe_session
+    r = client.get("/billing/success", params={"session_id": "cs_paid"})
+    assert "billing.stripe.com" not in r.text
+
+
+def test_free_key_page_has_no_portal_link(client):  # noqa: F811
+    r = client.post("/billing/signup-free", data={"email": "portal@mail.test-shop.dev"})
+    assert r.status_code == 200
+    assert "billing.stripe.com" not in r.text

@@ -4,6 +4,15 @@ Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
 HTTP API itself isn't versioned here; dated "HTTP API" entries note
 notable API changes.
 
+## HTTP API, unreleased (branch billing-portal-link)
+
+- Stripe customer portal link (`STRIPE_PORTAL_LOGIN_URL` in
+  `app/billing.py`) on the browser home page ("Already subscribed? Manage or
+  cancel your subscription", below the plans) and on the `/billing/success`
+  page below the key. Subscribers can cancel (at period end), update their
+  card and see invoices there. The JSON at `/`, the 402s, pricing and
+  routes are unchanged. BILLING.md has a "Customer billing portal" section.
+
 ## HTTP API, unreleased (branch key-hashing-retention)
 
 - API keys are stored hashed (`sha256:` + hex, in the same `api_key`
