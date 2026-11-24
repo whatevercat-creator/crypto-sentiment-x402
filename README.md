@@ -10,6 +10,8 @@ Live at **https://crypto-sentiment-x402.onrender.com** ·
 [API docs](https://crypto-sentiment-x402.onrender.com/docs) ·
 [llms.txt](https://crypto-sentiment-x402.onrender.com/llms.txt)
 
+Terms of use (plans, x402 charges, refunds, cancellation): [/terms](https://crypto-sentiment-x402.onrender.com/terms).
+
 ## What you get
 
 | Endpoint | Price | Returns |

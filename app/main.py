@@ -69,7 +69,7 @@ from app.alerts import router as alerts_router, init_alerts_db, poll_loop
 from app.dataset import router as dataset_router, init_dataset_db, snapshot_loop
 from app import archive
 from app import market
-from app.home import render_home
+from app.home import render_home, render_terms
 from app.hourly import init_hourly_db, hourly_loop
 from app.rapidapi import router as rapidapi_router
 from app.integrations import AccessLogKeyRedactor, router as integrations_router
@@ -747,6 +747,18 @@ async def root(request: Request):
         )
         return HTMLResponse(html, headers={"Vary": "Accept"})
     return JSONResponse(_root_index(), headers={"Vary": "Accept"})
+
+
+# Browser page, kept out of the schema so /openapi.json is unchanged.
+@app.get("/terms", include_in_schema=False)
+async def terms():
+    return HTMLResponse(render_terms(
+        tiers=TIERS,
+        price_usd=PRICE_USD,
+        history_price_usd=archive.HISTORY_PRICE_USD,
+        movers_price_usd=market.MOVERS_PRICE_USD,
+        portal_url=STRIPE_PORTAL_LOGIN_URL,
+    ))
 
 
 def _home_coverage() -> dict:
