@@ -17,10 +17,12 @@ from before 2026-10-03) and, as JSON, the top 3 headlines that drove it
 (`drivers`; NULL for earlier rows).
 
 What average_compound holds depends on the row's `window` column:
-- window = "72h-hl24" (2026-10-04 on): the recency-weighted average over
-  headlines from the last 72 hours (weight halves every 24 hours) -- the
-  same number the API returns as average_compound. Alongside it:
-  unweighted_compound_72h, effective_sample_size, newest_headline_age_hours.
+- window = "72h-hl24" (2026-10-04 on), "72h-hl24-v2" (2026-10-21 on, cleaned
+  feed text) and "72h-hl24-v3" (2026-11-27 on, live feeds plus the rolling
+  72-hour story store): the recency-weighted average over headlines from the
+  last 72 hours (weight halves every 24 hours) -- the same number the API
+  returns as average_compound. Alongside it: unweighted_compound_72h,
+  effective_sample_size, newest_headline_age_hours.
 - window NULL (earlier rows): the plain average over every item the feeds
   held, however old. The four new columns are NULL on those rows.
 
@@ -29,6 +31,10 @@ supported coin in sentiment_headlines (one row per link: title, source,
 link, published, first_seen, its own score, the symbols it matched). Titles
 and links only, never article text, so future method changes can be
 recomputed from stored data.
+
+The feed fetch also updates the rolling 72-hour story store (news_items,
+app/news_store.py) that scoring draws on from method 72h-hl24-v3, and every
+hourly run first deletes the store's rows that are past the window.
 
 Note: the Fear & Greed Index only updates once a day, so fear_greed_value is
 constant within a day here -- only average_compound moves hourly.
@@ -46,7 +52,7 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 
-from app import window
+from app import news_store, window
 from app.billing import _db
 from app.coins import COIN_NAMES, MATCHER_VERSION, mentions
 from app.sentiment_service import fetch_inputs, payloads_from
@@ -152,6 +158,7 @@ def init_hourly_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_headlines_published ON sentiment_headlines (published)"
         )
+    news_store.init_news_store()
 
 
 def _already_logged(symbol: str, hour_start: datetime) -> bool:
@@ -170,6 +177,12 @@ async def log_hour(symbols: list) -> None:
     fetch of the feeds (compute_sentiment_payloads), so every symbol is
     stamped with the same observed_at and adding symbols adds no requests."""
     hour_start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    if news_store.ENABLED:
+        try:
+            deleted = news_store.purge_expired()
+            logger.info("[hourly] news store: deleted %d item(s) past the %dh window", deleted, window.MAX_AGE_HOURS)
+        except Exception as e:  # noqa: BLE001 -- a failed purge must not cost the hour's readings
+            logger.warning("[hourly] news store purge failed (%s: %s); readings are still logged", type(e).__name__, e)
     pending = []
     for symbol in symbols:
         if _already_logged(symbol, hour_start):

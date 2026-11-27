@@ -77,7 +77,8 @@ def test_openapi_200_schemas_and_window_example(client):  # noqa: F811
         assert media["schema"]["required"] == required
         assert media["example"]
     example = spec["paths"]["/sentiment/{symbol}"]["get"]["responses"]["200"]["content"]["application/json"]["example"]
-    assert example["overall_sentiment"]["window"] == main.WINDOW_VERSION
+    # Frozen at 72h-hl24-v2 so the advertised example doesn't move with the method.
+    assert example["overall_sentiment"]["window"] == main.EXAMPLE_WINDOW_VERSION == "72h-hl24-v2"
 
 
 def test_openapi_tags(client):  # noqa: F811

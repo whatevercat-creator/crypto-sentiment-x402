@@ -88,9 +88,12 @@ rows whose `window` is set and the old all-items average on earlier rows, where
 `window` and the other three are NULL. `window` is the method version:
 `72h-hl24` from 2026-10-04 (raw feed text scored) and `72h-hl24-v2` from
 2026-10-21 (feed text cleaned of HTML, entities, footers and the outlet's own
-name before matching and scoring; the number the API returns now). Don't mix
-the two: `scripts/leadlag.py --window 72h-hl24` (same as `--window-only`) or
-`--window 72h-hl24-v2` selects exactly one. All symbols are scored from one fetch of the
+name before matching and scoring) and `72h-hl24-v3` from 2026-11-27 (same
+scoring, over the live feeds plus the rolling 72-hour story store in
+`app/news_store.py` instead of only what the feeds still held; the number the
+API returns now; its first 72 hours are a fill-in period). Don't mix
+versions: `scripts/leadlag.py --window 72h-hl24` (same as `--window-only`),
+`--window 72h-hl24-v2` or `--window 72h-hl24-v3` selects exactly one. All symbols are scored from one fetch of the
 feeds per hour, so adding symbols adds no feed requests. `matcher` is
 `whole_word` for readings made with the 2026-10-03 headline matcher and NULL
 for earlier, substring-matched rows; `scripts/leadlag.py --whole-word-only`

@@ -11,9 +11,9 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from app.sources.news import fetch_feed_items, fetch_news_headlines, select_headlines
+from app.sources.news import fetch_feed_items, select_headlines
 from app.sources.feargreed import fetch_fear_greed
-from app import window
+from app import news_store, window
 from app.coins import UnsupportedSymbol, resolve_name, supported_symbol, validate_symbol
 
 logger = logging.getLogger(__name__)
@@ -168,17 +168,16 @@ def build_payload(symbol: str, headlines: list, fear_greed, now=None) -> dict:
 async def compute_sentiment_payload(symbol: str) -> dict:
     """Raises ValueError on an invalid symbol."""
     symbol = validate_symbol(symbol)
-
-    news_task = fetch_news_headlines(symbol, resolve_name(symbol))
-    fng_task = fetch_fear_greed()
-
-    headlines, fear_greed = await asyncio.gather(news_task, fng_task)
-    return build_payload(symbol, headlines, fear_greed)
+    items, fear_greed = await fetch_inputs()
+    return build_payload(symbol, select_headlines(items, symbol), fear_greed)
 
 
 async def fetch_inputs():
-    """(feed items, Fear & Greed) from ONE fetch of each."""
-    return await asyncio.gather(fetch_feed_items(), fetch_fear_greed())
+    """(feed items, Fear & Greed) from ONE fetch of each. The feed items are
+    merged with the rolling 72-hour story store (app/news_store.py), which
+    this fetch also updates; live items only if the store is unavailable."""
+    items, fear_greed = await asyncio.gather(fetch_feed_items(), fetch_fear_greed())
+    return news_store.with_store(items), fear_greed
 
 
 def payloads_from(items: list, fear_greed, symbols: list, now=None) -> dict:
