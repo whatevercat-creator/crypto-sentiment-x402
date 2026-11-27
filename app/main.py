@@ -84,10 +84,13 @@ from app.sentiment_service import (
 from app.sources.news import NEWS_OUTLETS, feed_health
 from app.window import (
     CLEAN_TEXT_CHANGED_ON,
+    CLEAN_TEXT_WINDOW_VERSION,
+    EXAMPLE_WINDOW_VERSION,
     HALF_LIFE_HOURS,
     INSUFFICIENT_LABEL,
     MAX_AGE_HOURS,
     MIN_EFFECTIVE_SAMPLE,
+    STORE_CHANGED_ON,
     WINDOW_VERSION,
 )
 from app.sweep import sweep_loop
@@ -123,7 +126,7 @@ EXAMPLE_RESPONSE = {
         "unweighted_compound_72h": 0.17,
         "effective_sample_size": 29.4,
         "newest_headline_age_hours": 1.6,
-        "window": WINDOW_VERSION,
+        "window": EXAMPLE_WINDOW_VERSION,  # frozen: see app/window.py
     },
     "drivers": [
         {
@@ -952,8 +955,10 @@ headline's weight halves for every {HALF_LIFE_HOURS} hours of age.
 Index (alternative.me). Scored with VADER
 sentiment analysis plus a crypto slang lexicon, on each headline's title plus
 its feed description with HTML, entities, feed footers and the outlet's own
-name removed (method {WINDOW_VERSION} from {CLEAN_TEXT_CHANGED_ON}; methodology notes at
-/validation). Reddit is intentionally not used -- see /transparency.
+name removed (method {CLEAN_TEXT_WINDOW_VERSION} from {CLEAN_TEXT_CHANGED_ON}). From
+{STORE_CHANGED_ON} (method {WINDOW_VERSION}) the headlines are the live feeds plus
+every item stored in the last {MAX_AGE_HOURS} hours, not only what the feeds still
+show; methodology notes at /validation. Reddit is intentionally not used -- see /transparency.
 
 ## Contact
 hi@forgealone.com
@@ -1022,7 +1027,11 @@ async def transparency():
             f"size below {MIN_EFFECTIVE_SAMPLE} the label is \"{INSUFFICIENT_LABEL}\". "
             f"Each headline is matched and scored on its title plus its feed description "
             f"with HTML tags, entities, feed footers and the outlet's own name removed "
-            f"(from {CLEAN_TEXT_CHANGED_ON}). Method version: {WINDOW_VERSION}; results "
+            f"(from {CLEAN_TEXT_CHANGED_ON}). From {STORE_CHANGED_ON} the headlines are the "
+            f"live feeds plus every feed item stored in the last {MAX_AGE_HOURS} hours "
+            f"(title, link, outlet, publish time and its score when first seen; no "
+            f"article text), not only what the feeds still show; coverage fills in over "
+            f"the first {MAX_AGE_HOURS} hours after that deploy. Method version: {WINDOW_VERSION}; results "
             f"are reported separately per method version (see methodology_changes)."
         ),
         "feed_health": feed_health(),

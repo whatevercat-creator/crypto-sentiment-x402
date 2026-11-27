@@ -173,13 +173,13 @@ def client(monkeypatch):
     init_db()
     init_dataset_db()
 
-    async def fake_headlines(symbol, name=""):
+    async def fake_items(limit_per_feed=30):
         return HEADLINES
 
     async def fake_fng():
         return {"value": 50, "classification": "Neutral"}
 
-    monkeypatch.setattr(svc, "fetch_news_headlines", fake_headlines)
+    monkeypatch.setattr(svc, "fetch_feed_items", fake_items)
     monkeypatch.setattr(svc, "fetch_fear_greed", fake_fng)
     return TestClient(main.app)
 
@@ -196,13 +196,13 @@ def test_v1_route_returns_drivers(client, monkeypatch):
 
 
 def test_x402_route_handler_returns_drivers(monkeypatch):
-    async def headlines(symbol, name=""):
+    async def headlines(limit_per_feed=30):
         return HEADLINES
 
     async def fng():
         return None
 
-    monkeypatch.setattr(svc, "fetch_news_headlines", headlines)
+    monkeypatch.setattr(svc, "fetch_feed_items", headlines)
     monkeypatch.setattr(svc, "fetch_fear_greed", fng)
     body = json.loads(asyncio.run(main.get_sentiment("BTC")).body)
     assert len(body["drivers"]) == 5 and "drivers_summary" in body

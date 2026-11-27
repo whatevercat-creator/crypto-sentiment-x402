@@ -59,6 +59,15 @@ COIN_ALIASES = {
     "QNT": ("Quant Network",),
 }
 
+# Extra terms that count only exactly as written (case-sensitive), still
+# whole-word. Polygon upgraded MATIC to POL on 2024-09-04 and news now says
+# POL; in capitals only, so Berachain's "PoL" (Proof-of-Liquidity) and the
+# word "pol" don't count. "$POL" is listed too: match_pattern adds the "$"
+# form only for the ticker.
+CASE_SENSITIVE_ALIASES = {
+    "MATIC": ("POL", "$POL"),
+}
+
 # Tickers that are ordinary words: the bare word doesn't count, only the
 # name, an alias or the "$TICKER" form ("$LINK", not "link").
 WORD_TICKERS = frozenset({"LINK", "DOT", "NEAR", "PUMP", "HYPE", "TAO"})
@@ -68,16 +77,23 @@ WORD_TICKERS = frozenset({"LINK", "DOT", "NEAR", "PUMP", "HYPE", "TAO"})
 WORD_NAMES = frozenset({"QNT"})
 
 
+# Input symbols accepted for a coin and answered under its listed ticker
+# (POL -> MATIC: Polygon's 2024-09-04 upgrade). Not added to COIN_NAMES, so
+# the supported list, the OpenAPI enums and the 402s don't change.
+SYMBOL_ALIASES = {"POL": "MATIC"}
+
+
 def resolve_name(symbol: str) -> str:
     return COIN_NAMES.get(symbol.upper(), symbol)
 
 
 def validate_symbol(symbol: str) -> str:
-    """Normalize and validate a ticker symbol (e.g. 'btc ' -> 'BTC'). Raises ValueError if invalid."""
+    """Normalize and validate a ticker symbol (e.g. 'btc ' -> 'BTC', 'pol'
+    -> 'MATIC'). Raises ValueError if invalid."""
     symbol = symbol.upper().strip()
     if not symbol.isalnum() or len(symbol) > 10:
         raise ValueError(f"Invalid symbol: {symbol!r}")
-    return symbol
+    return SYMBOL_ALIASES.get(symbol, symbol)
 
 
 class UnsupportedSymbol(ValueError):
@@ -108,7 +124,8 @@ def _term_regex(term: str) -> str:
 
 @lru_cache(maxsize=256)
 def match_pattern(symbol: str) -> re.Pattern:
-    """Whole-word, case-insensitive pattern for headlines about `symbol`."""
+    """Whole-word, case-insensitive pattern for headlines about `symbol`
+    (CASE_SENSITIVE_ALIASES match exactly as written)."""
     symbol = symbol.upper()
     terms = list(COIN_ALIASES.get(symbol, ()))
     name = COIN_NAMES.get(symbol)
@@ -119,6 +136,7 @@ def match_pattern(symbol: str) -> re.Pattern:
         alternatives.append(r"\$" + re.escape(symbol))
     else:
         alternatives.append(r"\$?" + re.escape(symbol))
+    alternatives += [f"(?-i:{_term_regex(t)})" for t in CASE_SENSITIVE_ALIASES.get(symbol, ())]
     body = "|".join(f"(?:{a})" for a in alternatives)
     return re.compile(rf"(?<![\w$])(?:{body})(?!\w)", re.IGNORECASE)
 

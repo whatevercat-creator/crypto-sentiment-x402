@@ -55,6 +55,11 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 # The sentiment archive: can't be backfilled, holds no personal data.
+# news_items (the rolling 72-hour story store, app/news_store.py) is left out
+# on purpose: it holds no personal data either, but it's a cache that refills
+# itself from the feeds and deletes its own rows after 73 hours, the matched
+# headlines are already kept in sentiment_headlines, and listing it here
+# would make --archive-only stop on a database created before the store.
 ARCHIVE_TABLES = ("sentiment_hourly", "sentiment_snapshots", "sentiment_headlines")
 
 SQLITE_HEADER = b"SQLite format 3\x00"

@@ -51,7 +51,17 @@ Each headline is matched and scored on its title plus its feed description with
 HTML tags, entities, feed footers and the outlet's own name removed
 (`clean_text` in `app/sources/news.py`; method `72h-hl24-v2` from 2026-10-21).
 Only headlines published in the last 72 hours count, and each headline's
-weight halves for every 24 hours of age (`app/window.py`). When the effective
+weight halves for every 24 hours of age (`app/window.py`). The feeds only hold
+their latest items (on 2026-11-27 the oldest was about 52 hours old), so from
+2026-11-27 (method `72h-hl24-v3`) every feed fetch is also kept in a rolling
+72-hour story store (`news_items` in the billing database, `app/news_store.py`:
+outlet, title, link, publish time, first seen, its score and matched coins; no
+article text), and each score uses the stored items from the last 72 hours plus
+the live fetch. A stored item keeps the score it got when first seen. The store
+starts empty, so coverage fills in over the first 72 hours after the deploy.
+Polygon's `POL` (and `$POL`, in capitals only) count as MATIC, and `POL` is
+accepted as an input symbol, answered as MATIC. Each fetch reads up to 100 items per
+feed (30 before 2026-11-27). When the effective
 sample size is below 5, the label is `insufficient recent news` and the paid
 endpoints refuse with a 422 instead of charging. Whether the score leads or
 lags price is published at `/validation`, whatever it shows.

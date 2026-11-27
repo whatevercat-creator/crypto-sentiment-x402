@@ -158,7 +158,9 @@ def test_responses_carry_the_new_version():
         for h in range(6)
     ]
     payload = svc.build_payload("BTC", items, None, now)
-    assert payload["overall_sentiment"]["window"] == window.WINDOW_VERSION == "72h-hl24-v2"
+    # 72h-hl24-v3 (2026-11-27) keeps this cleaning; only where headlines come from changed.
+    assert payload["overall_sentiment"]["window"] == window.WINDOW_VERSION == "72h-hl24-v3"
+    assert window.CLEAN_TEXT_WINDOW_VERSION == "72h-hl24-v2"
     # The paid route's advertised example is unchanged.
     assert archive.HISTORY_EXAMPLE["rows"][1]["window"] == "72h-hl24"
 

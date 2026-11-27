@@ -44,6 +44,10 @@ text cleaned before matching and scoring). --window picks one method version
 exactly, so versions are never mixed; --window-only stays "72h-hl24" only:
     python scripts/leadlag.py --window 72h-hl24       # same rows as --window-only
     python scripts/leadlag.py --window 72h-hl24-v2
+From the 72h-hl24-v3 deploy (2026-11-27) rows record `window = '72h-hl24-v3'` (same
+window and scoring; headlines from the live feeds plus the rolling 72-hour story
+store, app/news_store.py; its first 72 hours are a fill-in period):
+    python scripts/leadlag.py --window 72h-hl24-v3
 With --out, "72h-hl24" results go to `symbols` as before and any other
 version's to `symbols_by_window[<version>]`, so they're reported separately.
 
@@ -85,7 +89,7 @@ def parse_ts(s: str) -> datetime:
 
 
 # What --window-only selects: the 2026-10-04 method the published results use.
-# Not app/window.py's current WINDOW_VERSION, which moved on to 72h-hl24-v2.
+# Not app/window.py's current WINDOW_VERSION, which has moved on since.
 WINDOW_ONLY_VERSION = "72h-hl24"
 SCORE_COLUMNS = {"weighted": "average_compound", "unweighted": "unweighted_compound_72h"}
 

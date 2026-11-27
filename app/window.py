@@ -17,6 +17,10 @@ items). Now:
   many full-weight headlines the weighted sample is worth. Below
   MIN_EFFECTIVE_SAMPLE the label is INSUFFICIENT_LABEL instead of
   bullish/bearish/neutral.
+- From STORE_CHANGED_ON (method 72h-hl24-v3) the headlines are the live
+  feeds plus every item stored in the last 72 hours (app/news_store.py), not
+  only what the feeds still show; a stored item keeps the score computed when
+  it was first seen.
 """
 
 from dataclasses import dataclass
@@ -32,9 +36,22 @@ WINDOW_CHANGED_ON = "2026-10-04"
 # "72h-hl24-v2" (CLEAN_TEXT_CHANGED_ON): same window and weighting; title +
 # description are cleaned before matching and scoring (app/sources/news.py's
 # clean_text) and multi-word lexicon entries work (app/sentiment.py).
+# "72h-hl24-v3" (STORE_CHANGED_ON): same window, weighting and per-headline
+# scoring; the headlines come from the live feeds plus the rolling 72-hour
+# story store (app/news_store.py) instead of the live feeds alone.
+# PREVIOUS_WINDOW_VERSION keeps its old meaning (the first windowed method,
+# 72h-hl24) for the modules that import it.
 PREVIOUS_WINDOW_VERSION = "72h-hl24"
-WINDOW_VERSION = "72h-hl24-v2"
+CLEAN_TEXT_WINDOW_VERSION = "72h-hl24-v2"
+WINDOW_VERSION = "72h-hl24-v3"
 CLEAN_TEXT_CHANGED_ON = "2026-10-21"
+STORE_CHANGED_ON = "2026-11-27"
+# The version shown in the example payloads that the 402s and /openapi.json
+# advertise (EXAMPLE_RESPONSE in app/main.py, the /market-sentiment and
+# /movers examples in app/market.py). Frozen, like archive.HISTORY_EXAMPLE's
+# "72h-hl24", so the paid routes' advertised contract doesn't change with
+# the scoring method. Live responses carry WINDOW_VERSION.
+EXAMPLE_WINDOW_VERSION = CLEAN_TEXT_WINDOW_VERSION
 MAX_AGE_HOURS = 72
 HALF_LIFE_HOURS = 24
 MIN_EFFECTIVE_SAMPLE = 5
@@ -94,7 +111,12 @@ def in_window(headlines: list, now: Optional[datetime] = None) -> List[Scored]:
         age = age_hours(h.published, now)
         if age is None or age > MAX_AGE_HOURS:
             continue
-        out.append(Scored(h, score_text(h.text[:SCORED_CHARS]), age, weight_for(age)))
+        # A stored item keeps the score computed when it was first seen
+        # (app/news_store.py); anything else is scored here.
+        score = getattr(h, "score", None)
+        if score is None:
+            score = score_text(h.text[:SCORED_CHARS])
+        out.append(Scored(h, score, age, weight_for(age)))
     return out
 
 

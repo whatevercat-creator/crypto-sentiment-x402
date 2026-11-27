@@ -67,7 +67,8 @@ NEG = "Bitcoin exchange hacked in massive scam"
 
 def test_named_constants():
     assert (window.MAX_AGE_HOURS, window.HALF_LIFE_HOURS, window.MIN_EFFECTIVE_SAMPLE) == (72, 24, 5)
-    assert window.WINDOW_VERSION == "72h-hl24-v2" and window.PREVIOUS_WINDOW_VERSION == "72h-hl24"
+    assert window.WINDOW_VERSION == "72h-hl24-v3" and window.PREVIOUS_WINDOW_VERSION == "72h-hl24"
+    assert window.EXAMPLE_WINDOW_VERSION == window.CLEAN_TEXT_WINDOW_VERSION == "72h-hl24-v2"
     assert window.INSUFFICIENT_LABEL == "insufficient recent news"
 
 
@@ -262,7 +263,7 @@ def test_bazaar_example_validates_with_window_fields():
     ext = main.routes["GET /sentiment/:symbol"].extensions["bazaar"]
     example_schema = ext["schema"]["properties"]["output"]["properties"]["example"]
     jsonschema.validate(ext["info"]["output"]["example"], example_schema)
-    assert ext["info"]["output"]["example"]["overall_sentiment"]["window"] == window.WINDOW_VERSION
+    assert ext["info"]["output"]["example"]["overall_sentiment"]["window"] == window.EXAMPLE_WINDOW_VERSION
 
 
 # --------------------------------------------------------------------------

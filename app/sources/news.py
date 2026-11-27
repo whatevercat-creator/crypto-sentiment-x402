@@ -7,6 +7,10 @@ items it returned and its newest item's publish time (FEED_HEALTH, shown on
 old is flagged and logged as a warning at most once per hour. Stale outlets
 are NOT dropped automatically: the 72-hour window in app/window.py already
 keeps their old items out of the score.
+
+The feeds only hold their latest items (on 2026-11-27 the oldest was about
+52 hours old), so each fetch is also merged with the rolling 72-hour story
+store in app/news_store.py before scoring (method 72h-hl24-v3).
 """
 
 import asyncio
@@ -16,7 +20,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 import xml.etree.ElementTree as ET
@@ -52,6 +56,11 @@ class Headline:
     link: Optional[str]
     published: Optional[str]  # ISO 8601 UTC, or None if the feed's date didn't parse
     text: str
+    # Set on items that went through the story store (app/news_store.py):
+    # the score computed when the item was first seen, and the coins it
+    # matches. A stored item the feeds no longer show has text "".
+    score: Optional[float] = None
+    coins: Optional[Tuple[str, ...]] = None
 
 
 _TAG = re.compile(r"<[^>]+>")
@@ -183,9 +192,11 @@ def feed_health() -> dict:
     }
 
 
-async def fetch_feed_items(limit_per_feed: int = 30) -> List[Headline]:
+async def fetch_feed_items(limit_per_feed: int = 100) -> List[Headline]:
     """Fetch every RSS feed once and return up to `limit_per_feed` items per
-    feed. A feed that fails is skipped (and recorded in FEED_HEALTH)."""
+    feed (100 from 2026-11-27, was 30: The Defiant's feed holds 100 items,
+    Decrypt's 35 and CryptoPotato's 36, and the rest were cut off). A feed
+    that fails is skipped (and recorded in FEED_HEALTH)."""
     items: List[Headline] = []
     async with httpx.AsyncClient(
         timeout=10,
@@ -220,8 +231,14 @@ async def fetch_feed_items(limit_per_feed: int = 30) -> List[Headline]:
 
 
 def select_headlines(items: List[Headline], symbol: str) -> List[Headline]:
-    """The items that mention `symbol` (whole-word, see app/coins.py)."""
-    return [item for item in items if mentions(symbol, item.text)]
+    """The items that mention `symbol` (whole-word, see app/coins.py). An
+    item from the story store carries its matched coins; those are used
+    instead (a stored item has no text to match)."""
+    symbol = symbol.upper()
+    return [
+        item for item in items
+        if (symbol in item.coins if getattr(item, "coins", None) is not None else mentions(symbol, item.text))
+    ]
 
 
 async def fetch_news_headlines(symbol: str, name: str = "", limit_per_feed: int = 30) -> List[Headline]:

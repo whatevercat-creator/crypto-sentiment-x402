@@ -22,9 +22,11 @@ from app.coins import MATCHER_CHANGED_ON, MATCHER_VERSION
 from app.hourly import HOURLY_SYMBOLS
 from app.window import (
     CLEAN_TEXT_CHANGED_ON,
+    CLEAN_TEXT_WINDOW_VERSION,
     HALF_LIFE_HOURS,
     MAX_AGE_HOURS,
     PREVIOUS_WINDOW_VERSION,
+    STORE_CHANGED_ON,
     WINDOW_CHANGED_ON,
     WINDOW_VERSION,
 )
@@ -50,13 +52,16 @@ MATCHER_NOTE = (
 )
 WINDOW_NOTE = (
     f"average_compound depends on the row's window column. window "
-    f"\"{WINDOW_VERSION}\" (from {CLEAN_TEXT_CHANGED_ON}): the recency-weighted score over "
+    f"\"{WINDOW_VERSION}\" (from {STORE_CHANGED_ON}): the recency-weighted score over "
     f"headlines from the last {MAX_AGE_HOURS} hours (weight halves every "
-    f"{HALF_LIFE_HOURS} hours), the same number the live API returns, with each "
+    f"{HALF_LIFE_HOURS} hours), the same number the live API returns, taken from the "
+    f"live feeds plus every feed item stored in the last {MAX_AGE_HOURS} hours. window "
+    f"\"{CLEAN_TEXT_WINDOW_VERSION}\" ({CLEAN_TEXT_CHANGED_ON} to {STORE_CHANGED_ON}): the same "
+    "window and weighting over only the items the feeds held at the time, with each "
     "headline scored on its title plus feed description cleaned of HTML, entities "
-    f"and feed boilerplate. window \"{PREVIOUS_WINDOW_VERSION}\" ({WINDOW_CHANGED_ON} to "
-    f"{CLEAN_TEXT_CHANGED_ON}): the same window and weighting over the raw feed text. "
-    "On both, unweighted_compound_72h, effective_sample_size and "
+    f"and feed boilerplate (as in {WINDOW_VERSION}). window \"{PREVIOUS_WINDOW_VERSION}\" "
+    f"({WINDOW_CHANGED_ON} to {CLEAN_TEXT_CHANGED_ON}): the same window and weighting over "
+    "the raw feed text. On all three, unweighted_compound_72h, effective_sample_size and "
     "newest_headline_age_hours are filled in. window null (earlier rows): the plain "
     "average over every item the feeds held, however old, and those four columns are "
     "null. Don't mix window versions in one analysis; see /validation."

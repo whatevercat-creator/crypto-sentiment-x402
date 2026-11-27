@@ -276,7 +276,7 @@ MARKET_SENTIMENT_EXAMPLE = {
         {"symbol": "ETH", "average_compound": 0.18, "weight": 0.3165},
         {"symbol": "SOL", "average_compound": -0.05, "weight": 0.2104},
     ],
-    "window": WINDOW_VERSION,
+    "window": window.EXAMPLE_WINDOW_VERSION,  # frozen: see app/window.py
     "cached": True,
     "computed_at": "2026-11-09T20:00:00+00:00",
     "next_refresh_at": "2026-11-09T21:00:00+00:00",
@@ -306,6 +306,6 @@ MOVERS_EXAMPLE = {
     "coins_ranked": 18,
     "coins_considered": 24,
     "lookback_hours": 24.0,
-    "window": WINDOW_VERSION,
+    "window": window.EXAMPLE_WINDOW_VERSION,  # frozen: see app/window.py
     "computed_at": "2026-11-09T20:00:00+00:00",
 }

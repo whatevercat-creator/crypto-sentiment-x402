@@ -55,7 +55,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 
 from app.billing import _db, get_key_info
-from app.coins import COIN_NAMES, validate_symbol
+from app.coins import COIN_NAMES, SYMBOL_ALIASES, validate_symbol
 from app.sentiment_service import compute_sentiment_payload
 from app.window import INSUFFICIENT_LABEL
 from app.alerts import ACTIVE_WATCHES_SQL, _deliver
@@ -91,7 +91,7 @@ def _normalize_tv_ticker(raw: str) -> str:
     for suffix in _QUOTE_SUFFIXES:
         if ticker.endswith(suffix) and len(ticker) > len(suffix):
             candidate = ticker[: -len(suffix)]
-            if candidate in COIN_NAMES:
+            if candidate in COIN_NAMES or candidate in SYMBOL_ALIASES:  # "POLUSDT" -> "POL" -> MATIC
                 return candidate
     return ticker  # fall through -- validate_symbol/compute_sentiment_payload will handle/reject it
 

@@ -4,6 +4,31 @@ Changes to the `crypto-sentiment-x402-mcp` package (the MCP server). The
 HTTP API itself isn't versioned here; dated "HTTP API" entries note
 notable API changes.
 
+## HTTP API, unreleased (branch news-coverage)
+
+- Rolling 72-hour story store, method `72h-hl24-v3`. Every feed fetch (the
+  hourly run and every on-demand call) upserts its dated items into a new
+  `news_items` table in the billing database (`app/news_store.py`): outlet,
+  title, link, published, first_seen, the item's score when first seen and
+  its matched coins, deduped by link (or outlet + title). No description or
+  article text. Scores use every stored item from the last 72 hours plus the
+  live fetch, with the same weighting, effective-sample-size rule and
+  drivers. Rows older than 73 hours are deleted every hourly run. If the
+  store fails, scoring falls back to the live feeds only and logs one
+  warning line. Coverage fills in over the first 72 hours after deploy.
+  Hourly rows record `window = "72h-hl24-v3"`; /transparency and
+  /validation carry a new `methodology_changes` entry.
+- `POL` and `$POL` match MATIC (Polygon's 2024-09-04 upgrade), in capitals
+  only, so Berachain's "PoL" (Proof-of-Liquidity) doesn't count. `POL` is
+  accepted as an input symbol in any case (including TradingView's
+  `POLUSDT`), answered as MATIC. `COIN_NAMES` is unchanged.
+- Each feed fetch reads up to 100 items per feed instead of 30
+  (`fetch_feed_items`' default): on 2026-11-27 The Defiant's feed held 100
+  items, Decrypt's 35 and CryptoPotato's 36.
+- The example payloads in the 402s and `/openapi.json` keep
+  `"window": "72h-hl24-v2"` (`EXAMPLE_WINDOW_VERSION`), so the JSON at `/`,
+  the 402s, pricing and `/openapi.json` are byte-identical.
+
 ## HTTP API, unreleased (branch terms-page)
 
 - New browser page `GET /terms` ("Crypto News Sentiment API - Terms", last
